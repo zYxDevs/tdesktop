@@ -5,11 +5,12 @@ the official desktop application for the Telegram messaging service.
 For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 '''
+
 import glob, re, binascii, os, sys
 
 sys.dont_write_bytecode = True
 scriptPath = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(scriptPath + '/../../../lib_tl/tl')
+sys.path.append(f'{scriptPath}/../../../lib_tl/tl')
 from generate_tl import generate
 
 generate({

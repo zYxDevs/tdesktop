@@ -35,7 +35,7 @@ for arg in sys.argv:
 
 def finish(code, error = ''):
     if error != '':
-        print('[ERROR] ' + error)
+        print(f'[ERROR] {error}')
     global executePath
     os.chdir(executePath)
     sys.exit(code)

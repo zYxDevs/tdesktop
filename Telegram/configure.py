@@ -5,11 +5,12 @@ the official desktop application for the Telegram messaging service.
 For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 '''
+
 import sys, os, re
 
 sys.dont_write_bytecode = True
 scriptPath = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(scriptPath + '/../cmake')
+sys.path.append(f'{scriptPath}/../cmake')
 import run_cmake
 
 executePath = os.getcwd()
@@ -19,7 +20,7 @@ def finish(code):
     sys.exit(code)
 
 def error(message):
-    print('[ERROR] ' + message)
+    print(f'[ERROR] {message}')
     finish(1)
 
 if sys.platform == 'win32' and 'COMSPEC' not in os.environ:
@@ -32,7 +33,7 @@ scriptName = os.path.basename(scriptPath)
 arguments = sys.argv[1:]
 
 officialTarget = ''
-officialTargetFile = scriptPath + '/build/target'
+officialTargetFile = f'{scriptPath}/build/target'
 if os.path.isfile(officialTargetFile):
     with open(officialTargetFile, 'r') as f:
         for line in f:
@@ -45,7 +46,7 @@ elif officialTarget in ['win64', 'uwp64']:
     arch = 'x64'
 
 if officialTarget != '':
-    officialApiIdFile = scriptPath + '/../../DesktopPrivate/custom_api_id.h'
+    officialApiIdFile = f'{scriptPath}/../../DesktopPrivate/custom_api_id.h'
     if not os.path.isfile(officialApiIdFile):
         print("[ERROR] DesktopPrivate/custom_api_id.h not found.")
         finish(1)
@@ -54,9 +55,9 @@ if officialTarget != '':
             apiIdMatch = re.search(r'ApiId\s+=\s+(\d+)', line)
             apiHashMatch = re.search(r'ApiHash\s+=\s+"([a-fA-F\d]+)"', line)
             if apiIdMatch:
-                arguments.append('-DTDESKTOP_API_ID=' + apiIdMatch.group(1))
+                arguments.append('-DTDESKTOP_API_ID=' + apiIdMatch[1])
             elif apiHashMatch:
-                arguments.append('-DTDESKTOP_API_HASH=' + apiHashMatch.group(1))
+                arguments.append('-DTDESKTOP_API_HASH=' + apiHashMatch[1])
     if arch != '':
         arguments.append(arch)
 finish(run_cmake.run(scriptName, arguments))

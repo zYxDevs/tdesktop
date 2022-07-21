@@ -5,13 +5,12 @@ os.chdir()
 keys = []
 with open('lang.strings') as f:
     for line in f:
-        m = re.match(r'\"(lng_[a-z_]+)(\#[a-z]+)?\"', line)
-        if m:
-            keys.append(m.group(1))
+        if m := re.match(r'\"(lng_[a-z_]+)(\#[a-z]+)?\"', line):
+            keys.append(m[1])
         elif not re.match(r'^\s*$', line):
-            print('Bad line: ' + line)
+            print(f'Bad line: {line}')
             sys.exit(1)
 
-print('Keys: ' + str(len(keys)))
+print(f'Keys: {len(keys)}')
 
 sys.exit()

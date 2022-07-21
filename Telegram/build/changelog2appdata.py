@@ -24,16 +24,13 @@ def parse_changelog(changelog_path):
                        [])
             releases.append(release)
         elif entry_match is not None:
-            release[3].append(entry_match.group(1))
+            release[3].append(entry_match[1])
 
     return releases
 
 def get_release_xml(version, prerelease, date, changes):
     release = ET.Element("release")
-    if prerelease is None:
-        ver_str = version
-    else:
-        ver_str = f"{version}~{prerelease}"
+    ver_str = version if prerelease is None else f"{version}~{prerelease}"
     release.set("version", ver_str)
     release.set("date", date.isoformat())
     description = ET.SubElement(release, "description")
