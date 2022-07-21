@@ -9,7 +9,7 @@ def finish(code):
     sys.exit(code)
 
 def error(text):
-    print('[ERROR] ' + text)
+    print(f'[ERROR] {text}')
     finish(1)
 
 win = (sys.platform == 'win32')
@@ -17,16 +17,16 @@ mac = (sys.platform == 'darwin')
 win32 = win and (os.environ['Platform'] == 'x86')
 win64 = win and (os.environ['Platform'] == 'x64')
 
-if win and not 'COMSPEC' in os.environ:
+if win and 'COMSPEC' not in os.environ:
     error('COMSPEC environment variable is not set.')
 
 if win and not win32 and not win64:
     error('Make sure to run from Native Tools Command Prompt.')
 
-os.chdir(scriptPath + '/../../../..')
+os.chdir(f'{scriptPath}/../../../..')
 
 pathSep = ';' if win else ':'
-libsLoc = 'Libraries' if not win64 else (os.path.join('Libraries', 'win64'))
+libsLoc = (os.path.join('Libraries', 'win64')) if win64 else 'Libraries'
 keysLoc = 'cache_keys'
 
 rootDir = os.getcwd()
@@ -52,8 +52,8 @@ for arg in sys.argv[1:]:
         options.append(arg)
     elif arg == 'run':
         customRunCommand = True
-buildQt5 = not 'skip-qt5' in options if win else 'build-qt5' in options
-buildQt6 = 'build-qt6' in options if win else not 'skip-qt6' in options
+buildQt5 = 'skip-qt5' not in options if win else 'build-qt5' in options
+buildQt6 = 'build-qt6' in options if win else 'skip-qt6' not in options
 
 if not os.path.isdir(os.path.join(libsDir, keysLoc)):
     pathlib.Path(os.path.join(libsDir, keysLoc)).mkdir(parents=True, exist_ok=True)
@@ -101,9 +101,9 @@ ignoreInCacheForThirdParty = [
 environmentKeyString = ''
 envForThirdPartyKeyString = ''
 for key in environment:
-    part = key + '=' + environment[key] + ';'
+    part = f'{key}={environment[key]};'
     environmentKeyString += part
-    if not key in ignoreInCacheForThirdParty:
+    if key not in ignoreInCacheForThirdParty:
         envForThirdPartyKeyString += part
 environmentKey = hashlib.sha1(environmentKeyString.encode('utf-8')).hexdigest()
 envForThirdPartyKey = hashlib.sha1(envForThirdPartyKeyString.encode('utf-8')).hexdigest()
@@ -118,10 +118,10 @@ def computeFileHash(path):
     sha1 = hashlib.sha1()
     with open(path, 'rb') as f:
         while True:
-            data = f.read(256 * 1024)
-            if not data:
+            if data := f.read(256 * 1024):
+                sha1.update(data)
+            else:
                 break
-            sha1.update(data)
     return sha1.hexdigest()
 
 def computeCacheKey(stage):
@@ -142,10 +142,10 @@ def computeCacheKey(stage):
         if len(pathlist) == 0:
             pathlist = glob.glob(os.path.join(thirdPartyDir, pattern))
         if len(pathlist) == 0:
-            error('Nothing found: ' + pattern)
+            error(f'Nothing found: {pattern}')
         for path in pathlist:
             if not os.path.exists(path):
-                error('Not found: ' + path)
+                error(f'Not found: {path}')
             items.append(computeFileHash(path))
         objects.append(':'.join(items))
     return hashlib.sha1(';'.join(objects).encode('utf-8')).hexdigest()
@@ -154,7 +154,7 @@ def keyPath(stage):
     return os.path.join(stage['directory'], keysLoc, stage['name'])
 
 def checkCacheKey(stage):
-    if not 'key' in stage:
+    if 'key' not in stage:
         error('Key not set in stage: ' + stage['name'])
     key = keyPath(stage)
     if not os.path.exists(os.path.join(stage['directory'], stage['name'])):
@@ -170,7 +170,7 @@ def clearCacheKey(stage):
         os.remove(key)
 
 def writeCacheKey(stage):
-    if not 'key' in stage:
+    if 'key' not in stage:
         error('Key not set in stage: ' + stage['name'])
     key = keyPath(stage)
     with open(key, 'w') as file:
@@ -180,8 +180,14 @@ stages = []
 
 def removeDir(folder):
     if win:
-        return 'if exist ' + folder + ' rmdir /Q /S ' + folder + '\nif exist ' + folder + ' exit /b 1'
-    return 'rm -rf ' + folder
+        return (
+            f'if exist {folder} rmdir /Q /S {folder}'
+            + '\nif exist '
+            + folder
+            + ' exit /b 1'
+        )
+
+    return f'rm -rf {folder}'
 
 def filterByPlatform(commands):
     commands = commands.split('\n')
@@ -191,8 +197,8 @@ def filterByPlatform(commands):
     skip = False
     for command in commands:
         m = re.match(r'(!?)([a-z0-9_]+):', command)
-        if m and m.group(2) != 'depends' and m.group(2) != 'version':
-            scopes = m.group(2).split('_')
+        if m and m[2] != 'depends' and m[2] != 'version':
+            scopes = m[2].split('_')
             inscope = 'common' in scopes
             if win and 'win' in scopes:
                 inscope = True
@@ -209,9 +215,9 @@ def filterByPlatform(commands):
                     inscope = False
                 elif len(scopes) == 1:
                     continue
-            skip = inscope if m.group(1) == '!' else not inscope
+            skip = inscope if m[1] == '!' else not inscope
         elif not skip and not re.match(r'\s*#', command):
-            if m and m.group(2) == 'version':
+            if m and m[2] == 'version':
                 version = version + '.' + command[len(m.group(0)):].strip()
             elif m and m.group(2) == 'depends':
                 pattern = command[len(m.group(0)):].strip()
@@ -228,7 +234,7 @@ def stage(name, commands, location = 'Libraries'):
     elif location == 'ThirdParty':
         directory = thirdPartyDir
     else:
-        error('Unknown location: ' + location)
+        error(f'Unknown location: {location}')
     [commands, dependencies, version] = filterByPlatform(commands)
     if len(commands) > 0:
         stages.append({
@@ -247,9 +253,9 @@ def winFailOnEach(command):
     for command in commands:
         command = re.sub(r'\$([A-Za-z0-9_]+)', r'%\1%', command)
         if re.search(r'\$', command):
-            error('Bad command: ' + command)
+            error(f'Bad command: {command}')
         appendCall = startingCommand and not re.match(r'(if|for) ', command)
-        called = 'call ' + command if appendCall else command
+        called = f'call {command}' if appendCall else command
         result = result + called
         if command.endswith('^'):
             startingCommand = False
@@ -275,7 +281,7 @@ def run(commands):
             os.remove("command.bat")
         return result
     elif re.search(r'\%', commands):
-        error('Bad command: ' + commands)
+        error(f'Bad command: {commands}')
     else:
         return subprocess.run("set -e\n" + commands, shell=True, env=modifiedEnv).returncode == 0
 
@@ -332,25 +338,31 @@ def runStages():
                 found = True
                 break
         if not found:
-            error('Unknown argument: ' + arg)
+            error(f'Unknown argument: {arg}')
     count = len(stages)
     index = 0
     for stage in stages:
-        if len(onlyStages) > 0 and not stage['name'] in onlyStages:
+        if onlyStages and stage['name'] not in onlyStages:
             continue
         index = index + 1
         version = ('#' + str(stage['version'])) if (stage['version'] != '0') else ''
-        prefix = '[' + os.path.join(str(index), str(count)) + '](' + os.path.join(stage['location'], stage['name']) + version + ')'
-        print(prefix + ': ', end = '', flush=True)
+        prefix = (
+            f'[{os.path.join(str(index), str(count))}]('
+            + os.path.join(stage['location'], stage['name'])
+            + version
+            + ')'
+        )
+
+        print(f'{prefix}: ', end = '', flush=True)
         stage['key'] = computeCacheKey(stage)
         commands = removeDir(stage['name']) + '\n' + stage['commands']
-        checkResult = 'Forced' if len(onlyStages) > 0 else checkCacheKey(stage)
+        checkResult = 'Forced' if onlyStages else checkCacheKey(stage)
         if checkResult == 'Good':
             print('SKIPPING')
             continue
         elif checkResult == 'NotFound':
             print('NOT FOUND, ', end='')
-        elif checkResult == 'Stale' or checkResult == 'Forced':
+        elif checkResult in ['Stale', 'Forced']:
             if checkResult == 'Stale':
                 print('CHANGED, ', end='')
             if rebuildStale:
@@ -384,7 +396,7 @@ def runStages():
         print('BUILDING:')
         os.chdir(stage['directory'])
         if not run(commands):
-            print(prefix + ': FAILED')
+            print(f'{prefix}: FAILED')
             finish(1)
         writeCacheKey(stage)
 

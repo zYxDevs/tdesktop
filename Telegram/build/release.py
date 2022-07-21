@@ -50,7 +50,9 @@ class IterableToFileAdapter(object):
 
 def checkResponseCode(result, right_code):
   if (result.status_code != right_code):
-    print('Wrong result code: ' + str(result.status_code) + ', should be ' + str(right_code))
+    print(
+        f'Wrong result code: {str(result.status_code)}, should be {str(right_code)}'
+    )
     sys.exit(1)
 
 def getOutput(command):
@@ -67,14 +69,16 @@ def prepareSources():
   workpath = os.getcwd()
   os.chdir('../..')
   rootpath = os.getcwd()
-  finalpath = rootpath + '/out/Release/sources.tar'
+  finalpath = f'{rootpath}/out/Release/sources.tar'
   if os.path.exists(finalpath):
     os.remove(finalpath)
-  if os.path.exists(finalpath + '.gz'):
-    os.remove(finalpath + '.gz')
-  tmppath = rootpath + '/out/Release/tmp.tar'
+  if os.path.exists(f'{finalpath}.gz'):
+    os.remove(f'{finalpath}.gz')
+  tmppath = f'{rootpath}/out/Release/tmp.tar'
   print('Preparing source tarball...')
-  if (call(('git archive --prefix=tdesktop-' + version + '-full/ -o ' + finalpath + ' v' + version).split()) != 0):
+  if (call(
+      f'git archive --prefix=tdesktop-{version}-full/ -o {finalpath} v{version}'
+      .split()) != 0):
     os.remove(finalpath)
     sys.exit(1)
   lines = getOutput('git submodule foreach').split('\n')
@@ -83,28 +87,30 @@ def prepareSources():
       continue
     match = re.match(r"^Entering '([^']+)'$", line)
     if not match:
-      print('Bad line: ' + line)
+      print(f'Bad line: {line}')
       sys.exit(1)
-    path = match.group(1)
-    revision = getOutput('git rev-parse v' + version + ':' + path).split('\n')[0]
-    print('Adding submodule ' + path + '...')
+    path = match[1]
+    revision = getOutput(f'git rev-parse v{version}:{path}').split('\n')[0]
+    print(f'Adding submodule {path}...')
     os.chdir(path)
-    if (call(('git archive --prefix=tdesktop-' + version + '-full/' + path + '/ ' + revision + ' -o ' + tmppath).split()) != 0):
+    if (call(
+        f'git archive --prefix=tdesktop-{version}-full/{path}/ {revision} -o {tmppath}'
+        .split()) != 0):
       os.remove(finalpath)
       os.remove(tmppath)
       sys.exit(1)
-    if (call(('gtar --concatenate --file=' + finalpath + ' ' + tmppath).split()) != 0):
+    if call(f'gtar --concatenate --file={finalpath} {tmppath}'.split()) != 0:
       os.remove(finalpath)
       os.remove(tmppath)
       sys.exit(1)
     os.remove(tmppath)
     os.chdir(rootpath)
   print('Compressing...')
-  if (call(('gzip -9 ' + finalpath).split()) != 0):
+  if call(f'gzip -9 {finalpath}'.split()) != 0:
     os.remove(finalpath)
     sys.exit(1)
   os.chdir(workpath)
-  return finalpath + '.gz'
+  return f'{finalpath}.gz'
 
 pp = pprint.PrettyPrinter(indent=2)
 url = 'https://api.github.com/'
