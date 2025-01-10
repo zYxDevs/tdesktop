@@ -13,6 +13,7 @@ https://github.com/TDesktop-x64/tdesktop/blob/dev/LEGAL
 
 #include "settings/settings_common.h"
 #include "settings/settings_chat.h"
+#include <ui/vertical_list.h>
 #include "ui/wrap/vertical_layout.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/widgets/buttons.h"
@@ -63,23 +64,6 @@ namespace Settings {
 		uploadBoostBtn->addClickHandler([=] {
 			Ui::show(Box<NetBoostBox>());
 		});
-
-		auto donwloadBoostBtn = AddButton(
-				inner,
-				tr::lng_settings_net_download_speed_boost(),
-				st::settingsButtonNoIcon
-		);
-		donwloadBoostBtn->setColorOverride(QColor(255, 0, 0));
-		donwloadBoostBtn->toggleOn(
-				rpl::single(GetEnhancedBool("net_dl_speed_boost"))
-		)->toggledChanges(
-		) | rpl::filter([=](bool toggled) {
-			return (toggled != GetEnhancedBool("net_dl_speed_boost"));
-		}) | rpl::start_with_next([=](bool toggled) {
-			SetEnhancedValue("net_dl_speed_boost", toggled);
-			EnhancedSettings::Write();
-			Core::Restart();
-		}, container->lifetime());
 
 		AddSkip(container);
 	}
@@ -146,7 +130,7 @@ namespace Settings {
 						object_ptr<Ui::VerticalLayout>(container)));
 		const auto inner = wrap->entity();
 
-		auto MsgIdBtn = AddButton(
+		auto MsgIdBtn = AddButtonWithIcon(
 				inner,
 				tr::lng_settings_show_message_id(),
 				st::settingsButtonNoIcon
@@ -163,7 +147,7 @@ namespace Settings {
 			Core::Restart();
 		}, container->lifetime());
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_show_repeater_option(),
 				st::settingsButtonNoIcon
@@ -178,7 +162,7 @@ namespace Settings {
 		}, container->lifetime());
 
 		if (GetEnhancedBool("show_repeater_option")) {
-			AddButton(
+			AddButtonWithIcon(
 					inner,
 					tr::lng_settings_repeater_reply_to_orig_msg(),
 					st::settingsButtonNoIcon
@@ -216,7 +200,7 @@ namespace Settings {
 			Ui::show(Box<AlwaysDeleteBox>());
 		});
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_disable_cloud_draft_sync(),
 				st::settingsButtonNoIcon
@@ -232,7 +216,7 @@ namespace Settings {
 
 		AddSkip(container);
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_hide_classic_forward(),
 				st::settingsButtonNoIcon
@@ -246,7 +230,7 @@ namespace Settings {
 			EnhancedSettings::Write();
 		}, container->lifetime());
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_disable_link_warning(),
 				st::settingsButtonNoIcon
@@ -260,7 +244,7 @@ namespace Settings {
 			EnhancedSettings::Write();
 		}, container->lifetime());
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_disable_premium_animation(),
 				st::settingsButtonNoIcon
@@ -274,9 +258,37 @@ namespace Settings {
 			EnhancedSettings::Write();
 		}, container->lifetime());
 
+		AddButtonWithIcon(
+				inner,
+				tr::lng_settings_disable_global_search(),
+				st::settingsButtonNoIcon
+		)->toggleOn(
+				rpl::single(GetEnhancedBool("disable_global_search"))
+		)->toggledChanges(
+		) | rpl::filter([=](bool toggled) {
+			return (toggled != GetEnhancedBool("disable_global_search"));
+		}) | rpl::start_with_next([=](bool toggled) {
+			SetEnhancedValue("disable_global_search", toggled);
+			EnhancedSettings::Write();
+		}, container->lifetime());
+
+		AddButtonWithIcon(
+				inner,
+				tr::lng_settings_show_group_sender_avatar(),
+				st::settingsButtonNoIcon
+		)->toggleOn(
+				rpl::single(GetEnhancedBool("show_group_sender_avatar"))
+		)->toggledChanges(
+		) | rpl::filter([=](bool toggled) {
+			return (toggled != GetEnhancedBool("show_group_sender_avatar"));
+		}) | rpl::start_with_next([=](bool toggled) {
+			SetEnhancedValue("show_group_sender_avatar", toggled);
+			EnhancedSettings::Write();
+		}, container->lifetime());
+
 		QString langPackBaseId = Lang::GetInstance().baseId();
 		if (langPackBaseId == "zh-hant-raw" || langPackBaseId == "zh-hans-raw") {
-			AddButton(
+			AddButtonWithIcon(
 					inner,
 					tr::lng_settings_translate_to_tc(),
 					st::settingsButtonNoIcon
@@ -291,7 +303,7 @@ namespace Settings {
 			}, container->lifetime());
 		}
 
-		auto secondsBtn = AddButton(
+		auto secondsBtn = AddButtonWithIcon(
 			inner,
 			tr::lng_settings_show_seconds(),
 			st::settingsButtonNoIcon
@@ -308,7 +320,7 @@ namespace Settings {
 			QTimer::singleShot(1 * 1000, []{ Core::Restart(); });
 		}, container->lifetime());
 
-		auto hideBtn = AddButton(
+		auto hideBtn = AddButtonWithIcon(
 			inner,
 			tr::lng_settings_hide_messages(),
 			st::settingsButtonNoIcon
@@ -351,7 +363,7 @@ namespace Settings {
 						object_ptr<Ui::VerticalLayout>(container)));
 		const auto inner = wrap->entity();
 
-		auto EmojiBtn = AddButton(
+		auto EmojiBtn = AddButtonWithIcon(
 				inner,
 				tr::lng_settings_show_emoji_button_as_text(),
 				st::settingsButtonNoIcon
@@ -370,7 +382,7 @@ namespace Settings {
 
 		AddDividerText(inner, tr::lng_show_emoji_button_as_text_desc());
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_show_scheduled_button(),
 				st::settingsButtonNoIcon
@@ -398,7 +410,7 @@ namespace Settings {
 						object_ptr<Ui::VerticalLayout>(container)));
 		const auto inner = wrap->entity();
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_radio_controller(),
 				st::settingsButtonNoIcon
@@ -408,7 +420,7 @@ namespace Settings {
 
 		AddDividerText(inner, tr::lng_radio_controller_desc());
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_auto_unmute(),
 				st::settingsButtonNoIcon
@@ -447,7 +459,7 @@ namespace Settings {
 			Ui::show(Box<BitrateController>());
 		});
 
-		AddButton(
+		AddButtonWithIcon(
 				inner,
 				tr::lng_settings_enable_hd_video(),
 				st::settingsButtonNoIcon
@@ -470,13 +482,7 @@ namespace Settings {
 		AddSkip(container);
 		AddSubsectionTitle(container, tr::lng_settings_other());
 
-		const auto wrap = container->add(
-				object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
-						container,
-						object_ptr<Ui::VerticalLayout>(container)));
-		const auto inner = wrap->entity();
-
-		auto hideBtn = AddButton(
+		auto hideBtn = AddButtonWithIcon(
 			container,
 			tr::lng_settings_hide_all_chats(),
 			st::settingsButtonNoIcon
@@ -493,7 +499,7 @@ namespace Settings {
 			Core::Restart();
 		}, container->lifetime());
 
-		AddButton(
+		AddButtonWithIcon(
 				container,
 				tr::lng_settings_replace_edit_button(),
 				st::settingsButtonNoIcon
@@ -508,7 +514,7 @@ namespace Settings {
 			controller->reloadFiltersMenu();
 		}, container->lifetime());
 
-		AddButton(
+		AddButtonWithIcon(
 				container,
 				tr::lng_settings_skip_message(),
 				st::settingsButtonNoIcon
@@ -524,7 +530,7 @@ namespace Settings {
 
 		AddDividerText(container, tr::lng_settings_skip_message_desc());
 
-		AddButton(
+		AddButtonWithIcon(
 				container,
 				tr::lng_settings_hide_counter(),
 				st::settingsButtonNoIcon
@@ -538,7 +544,7 @@ namespace Settings {
 			EnhancedSettings::Write();
 		}, container->lifetime());
 
-		AddButton(
+		AddButtonWithIcon(
 				container,
 				tr::lng_settings_hide_stories(),
 				st::settingsButtonNoIcon
@@ -551,6 +557,29 @@ namespace Settings {
 			SetEnhancedValue("hide_stories", enabled);
 			EnhancedSettings::Write();
 		}, container->lifetime());
+
+		auto value = rpl::single(
+				RecentDisplayLimitController::Label(GetEnhancedInt("recent_display_limit"))
+		) | rpl::then(
+				_BitrateChanged.events()
+		) | rpl::map([=] {
+			return RecentDisplayLimitController::Label(GetEnhancedInt("recent_display_limit"));
+		});
+
+		auto btn = AddButtonWithLabel(
+				container,
+				tr::lng_settings_recent_display_limit(),
+				std::move(value),
+				st::settingsButtonNoIcon
+		);
+		btn->events(
+		) | rpl::start_with_next([=](not_null<QEvent*> e) {
+			const auto event = e->type();
+			if (event == QEvent::UpdateLater) _BitrateChanged.fire({});
+		}, container->lifetime());
+		btn->addClickHandler([=] {
+			Ui::show(Box<RecentDisplayLimitController>());
+		});
 
 		AddSkip(container);
 	}

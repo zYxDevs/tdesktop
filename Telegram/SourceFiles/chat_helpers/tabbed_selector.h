@@ -36,7 +36,7 @@ class TabbedSearch;
 } // namespace Ui
 
 namespace SendMenu {
-enum class Type;
+struct Details;
 } // namespace SendMenu
 
 namespace style {
@@ -62,6 +62,7 @@ struct FileChosen {
 	not_null<DocumentData*> document;
 	Api::SendOptions options;
 	Ui::MessageSendingAnimationFrom messageSendingFrom;
+	TextWithTags caption;
 };
 
 struct PhotoChosen {
@@ -79,8 +80,15 @@ using InlineChosen = InlineBots::ResultSelected;
 enum class TabbedSelectorMode {
 	Full,
 	EmojiOnly,
+	StickersOnly,
 	MediaEditor,
 	EmojiStatus,
+	ChannelStatus,
+	BackgroundEmoji,
+	FullReactions,
+	RecentReactions,
+	PeerTitle,
+	ChatIntro,
 };
 
 struct TabbedSelectorDescriptor {
@@ -88,16 +96,23 @@ struct TabbedSelectorDescriptor {
 	const style::EmojiPan &st;
 	PauseReason level = {};
 	TabbedSelectorMode mode = TabbedSelectorMode::Full;
+	Fn<QColor()> customTextColor;
 	ComposeFeatures features;
 };
 
+enum class TabbedSearchType {
+	Emoji,
+	Status,
+	ProfilePhoto,
+	Stickers,
+	Greeting,
+};
 [[nodiscard]] std::unique_ptr<Ui::TabbedSearch> MakeSearch(
 	not_null<Ui::RpWidget*> parent,
 	const style::EmojiPan &st,
 	Fn<void(std::vector<QString>&&)> callback,
 	not_null<Main::Session*> session,
-	bool statusCategories = false,
-	bool profilePhotoCategories = false);
+	TabbedSearchType type);
 
 class TabbedSelector : public Ui::RpWidget {
 public:
@@ -164,7 +179,7 @@ public:
 		_beforeHidingCallback = std::move(callback);
 	}
 
-	void showMenuWithType(SendMenu::Type type);
+	void showMenuWithDetails(SendMenu::Details details);
 	void setDropDown(bool dropDown);
 
 	// Float player interface.
@@ -190,16 +205,19 @@ private:
 		object_ptr<Inner> takeWidget();
 		void returnWidget(object_ptr<Inner> widget);
 
-		SelectorTab type() const {
+		[[nodiscard]] SelectorTab type() const {
 			return _type;
 		}
-		int index() const {
+		[[nodiscard]] int index() const {
 			return _index;
 		}
-		Inner *widget() const {
+		[[nodiscard]] Inner *widget() const {
 			return _weak;
 		}
-		not_null<InnerFooter*> footer() const {
+		[[nodiscard]] bool hasFooter() const {
+			return _footer != nullptr;
+		}
+		[[nodiscard]] not_null<InnerFooter*> footer() const {
 			return _footer;
 		}
 
@@ -207,7 +225,7 @@ private:
 		void saveScrollTop(int scrollTop) {
 			_scrollTop = scrollTop;
 		}
-		int getScrollTop() const {
+		[[nodiscard]] int getScrollTop() const {
 			return _scrollTop;
 		}
 
@@ -272,10 +290,12 @@ private:
 	const ComposeFeatures _features;
 	const std::shared_ptr<Show> _show;
 	const PauseReason _level = {};
+	const Fn<QColor()> _customTextColor;
 
 	Mode _mode = Mode::Full;
 	int _roundRadius = 0;
 	int _footerTop = 0;
+	bool _noFooter = false;
 	Ui::CornersPixmaps _panelRounding;
 	Ui::CornersPixmaps _categoriesRounding;
 	PeerData *_currentPeer = nullptr;
@@ -289,6 +309,7 @@ private:
 	object_ptr<Ui::PlainShadow> _bottomShadow;
 	object_ptr<Ui::ScrollArea> _scroll;
 	object_ptr<Ui::FlatLabel> _restrictedLabel = { nullptr };
+	QString _restrictedLabelKey;
 	std::vector<Tab> _tabs;
 	SelectorTab _currentTabType = SelectorTab::Emoji;
 
@@ -361,7 +382,7 @@ public:
 	virtual void beforeHiding() {
 	}
 	[[nodiscard]] virtual base::unique_qptr<Ui::PopupMenu> fillContextMenu(
-			SendMenu::Type type) {
+			const SendMenu::Details &details) {
 		return nullptr;
 	}
 
@@ -403,7 +424,7 @@ private:
 
 	int _visibleTop = 0;
 	int _visibleBottom = 0;
-	int _minimalHeight = 0;
+	std::optional<int> _minimalHeight;
 
 	rpl::event_stream<int> _scrollToRequests;
 	rpl::event_stream<bool> _disableScrollRequests;

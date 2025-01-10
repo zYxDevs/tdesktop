@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "api/api_common.h"
+#include "base/object_ptr.h"
 #include "menu/menu_send.h"
 #include "data/data_poll.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
@@ -18,6 +19,7 @@ namespace Ui {
 class RpWidget;
 class BoxContent;
 class GenericBox;
+class Show;
 } // namespace Ui
 
 namespace Data {
@@ -33,6 +35,7 @@ namespace Dialogs {
 class MainList;
 struct EntryState;
 struct UnreadState;
+class Key;
 } // namespace Dialogs
 
 namespace ChatHelpers {
@@ -63,8 +66,16 @@ bool FillVideoChatMenu(
 	Dialogs::EntryState request,
 	const PeerMenuCallback &addAction);
 
+void FillSenderUserpicMenu(
+	not_null<SessionController*> controller,
+	not_null<PeerData*> peer,
+	Ui::InputField *fieldForMention,
+	Dialogs::Key searchInEntry,
+	const PeerMenuCallback &addAction);
+
 void MenuAddMarkAsReadAllChatsAction(
-	not_null<Window::SessionController*> controller,
+	not_null<Main::Session*> session,
+	std::shared_ptr<Ui::Show> show,
 	const PeerMenuCallback &addAction);
 
 void MenuAddMarkAsReadChatListAction(
@@ -88,12 +99,11 @@ void PeerMenuAddChannelMembers(
 void PeerMenuCreatePoll(
 	not_null<Window::SessionController*> controller,
 	not_null<PeerData*> peer,
-	MsgId replyToId = 0,
-	MsgId topicRootId = 0,
+	FullReplyTo replyTo = FullReplyTo(),
 	PollData::Flags chosen = PollData::Flags(),
 	PollData::Flags disabled = PollData::Flags(),
 	Api::SendType sendType = Api::SendType::Normal,
-	SendMenu::Type sendMenuType = SendMenu::Type::Scheduled);
+	SendMenu::Details sendMenuDetails = SendMenu::Details());
 void PeerMenuDeleteTopicWithConfirmation(
 	not_null<Window::SessionNavigation*> navigation,
 	not_null<Data::ForumTopic*> topic);
@@ -112,14 +122,19 @@ void PeerMenuBlockUserBox(
 	not_null<PeerData*> peer,
 	std::variant<v::null_t, bool> suggestReport,
 	std::variant<v::null_t, ClearChat, ClearReply> suggestClear);
-void PeerMenuUnblockUserWithBotRestart(not_null<UserData*> user);
+void PeerMenuUnblockUserWithBotRestart(
+	std::shared_ptr<Ui::Show> show,
+	not_null<UserData*> user);
 
 void BlockSenderFromRepliesBox(
 	not_null<Ui::GenericBox*> box,
 	not_null<Window::SessionController*> controller,
 	FullMsgId id);
 
-void ToggleHistoryArchived(not_null<History*> history, bool archived);
+void ToggleHistoryArchived(
+	std::shared_ptr<ChatHelpers::Show> show,
+	not_null<History*> history,
+	bool archived);
 Fn<void()> ClearHistoryHandler(
 	not_null<Window::SessionController*> controller,
 	not_null<PeerData*> peer);
@@ -130,12 +145,18 @@ Fn<void()> DeleteAndLeaveHandler(
 [[nodiscard]] Api::SendAction prepareSendAction(
 		History *history, Api::SendOptions options);
 
-QPointer<Ui::BoxContent> ShowNewForwardMessagesBox(
+void ShowNewForwardMessagesBox(
 	not_null<Window::SessionNavigation*> navigation,
 	MessageIdsList &&items,
-	bool no_quote,
-	FnMut<void()> &&successCallback = nullptr);
+	bool no_quote);
 
+object_ptr<Ui::BoxContent> PrepareChooseRecipientBox(
+	not_null<Main::Session*> session,
+	FnMut<bool(not_null<Data::Thread*>)> &&chosen,
+	rpl::producer<QString> titleOverride = nullptr,
+	FnMut<void()> &&successCallback = nullptr,
+	InlineBots::PeerTypes typesRestriction = 0,
+	Fn<void(std::vector<not_null<Data::Thread*>>)> sendMany = nullptr);
 QPointer<Ui::BoxContent> ShowChooseRecipientBox(
 	not_null<Window::SessionNavigation*> navigation,
 	FnMut<bool(not_null<Data::Thread*>)> &&chosen,

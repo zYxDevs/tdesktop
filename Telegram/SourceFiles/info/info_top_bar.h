@@ -41,6 +41,11 @@ namespace Info {
 class Key;
 class Section;
 
+struct TitleDescriptor {
+	rpl::producer<QString> title;
+	rpl::producer<QString> subtitle;
+};
+
 class TopBar : public Ui::RpWidget {
 public:
 	TopBar(
@@ -56,7 +61,7 @@ public:
 		return _storyClicks.events();
 	}
 
-	void setTitle(rpl::producer<QString> &&title);
+	void setTitle(TitleDescriptor descriptor);
 	void setStories(rpl::producer<Dialogs::Stories::Content> content);
 	void setStoriesArchive(bool archive);
 	void enableBackButton();
@@ -98,6 +103,8 @@ public:
 
 	void showSearch();
 
+	void checkBeforeCloseByEscape(Fn<void()> close);
+
 protected:
 	int resizeGetHeight(int newWidth) override;
 	void paintEvent(QPaintEvent *e) override;
@@ -122,6 +129,7 @@ private:
 	[[nodiscard]] Ui::StringWithNumbers generateSelectedText() const;
 	[[nodiscard]] bool computeCanDelete() const;
 	[[nodiscard]] bool computeCanForward() const;
+	[[nodiscard]] bool computeCanUnpinStories() const;
 	[[nodiscard]] bool computeCanToggleStoryPin() const;
 	void updateSelectionState();
 	void createSelectionControls();
@@ -155,6 +163,7 @@ private:
 	QPointer<Ui::FadeWrap<Ui::IconButton>> _back;
 	std::vector<base::unique_qptr<Ui::RpWidget>> _buttons;
 	QPointer<Ui::FadeWrap<Ui::FlatLabel>> _title;
+	QPointer<Ui::FadeWrap<Ui::FlatLabel>> _subtitle;
 
 	bool _searchModeEnabled = false;
 	bool _searchModeAvailable = false;
@@ -168,11 +177,13 @@ private:
 	bool _canDelete = false;
 	bool _canForward = false;
 	bool _canToggleStoryPin = false;
+	bool _canUnpinStories = false;
 	bool _storiesArchive = false;
 	QPointer<Ui::FadeWrap<Ui::IconButton>> _cancelSelection;
 	QPointer<Ui::FadeWrap<Ui::LabelWithNumbers>> _selectionText;
 	QPointer<Ui::FadeWrap<Ui::IconButton>> _forward;
 	QPointer<Ui::FadeWrap<Ui::IconButton>> _delete;
+	QPointer<Ui::FadeWrap<Ui::IconButton>> _toggleStoryInProfile;
 	QPointer<Ui::FadeWrap<Ui::IconButton>> _toggleStoryPin;
 	rpl::event_stream<SelectionAction> _selectionActionRequests;
 

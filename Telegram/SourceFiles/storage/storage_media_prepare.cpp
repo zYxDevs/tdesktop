@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "editor/photo_editor_common.h"
 #include "platform/platform_file_utilities.h"
+#include "lang/lang_keys.h"
 #include "storage/localimageloader.h"
 #include "core/mime_type.h"
 #include "ui/image/image_prepare.h"
@@ -131,7 +132,6 @@ MimeDataState ComputeMimeDataState(const QMimeData *data) {
 		return MimeDataState::None;
 	}
 
-	auto files = QStringList();
 	auto allAreSmallImages = true;
 	for (const auto &url : urls) {
 		if (!url.isLocalFile()) {
@@ -153,9 +153,13 @@ MimeDataState ComputeMimeDataState(const QMimeData *data) {
 		} else if (allAreSmallImages) {
 			if (filesize > Images::kReadBytesLimit) {
 				allAreSmallImages = false;
-			} else if (!FileIsImage(file, MimeTypeForFile(info).name())
-				|| !QImageReader(file).canRead()) {
-				allAreSmallImages = false;
+			} else {
+				const auto mime = MimeTypeForFile(info).name();
+				if (mime == u"image/gif"_q
+					|| !FileIsImage(file, mime)
+					|| !QImageReader(file).canRead()) {
+					allAreSmallImages = false;
+				}
 			}
 		}
 	}
@@ -293,8 +297,11 @@ void PrepareDetails(PreparedFile &file, int previewWidth, int sideLimit) {
 		if (ValidPhotoForAlbum(*image, file.information->filemime)) {
 			UpdateImageDetails(file, previewWidth, sideLimit);
 			file.type = PreparedFile::Type::Photo;
-		} else if (image->animated) {
-			file.type = PreparedFile::Type::None;
+		} else {
+			file.originalDimensions = image->data.size();
+			if (image->animated) {
+				file.type = PreparedFile::Type::None;
+			}
 		}
 	} else if (const auto video = std::get_if<Video>(
 			&file.information->media)) {
@@ -306,10 +313,10 @@ void PrepareDetails(PreparedFile &file, int previewWidth, int sideLimit) {
 				video->thumbnail,
 				sideLimit);
 			file.preview = std::move(blurred).scaledToWidth(
-				previewWidth * cIntRetinaFactor(),
+				previewWidth * style::DevicePixelRatio(),
 				Qt::SmoothTransformation);
 			Assert(!file.preview.isNull());
-			file.preview.setDevicePixelRatio(cRetinaFactor());
+			file.preview.setDevicePixelRatio(style::DevicePixelRatio());
 			file.type = PreparedFile::Type::Video;
 		}
 	} else if (const auto song = std::get_if<Song>(&file.information->media)) {
@@ -335,14 +342,14 @@ void UpdateImageDetails(
 	const auto toWidth = std::min(
 		previewWidth,
 		style::ConvertScale(preview.width())
-	) * cIntRetinaFactor();
+	) * style::DevicePixelRatio();
 	auto scaled = preview.scaledToWidth(
 		toWidth,
 		Qt::SmoothTransformation);
 	if (scaled.isNull()) {
 		CrashReports::SetAnnotation("Info", QString("%1x%2:%3*%4->%5;%6x%7"
 		).arg(preview.width()).arg(preview.height()
-		).arg(previewWidth).arg(cIntRetinaFactor()
+		).arg(previewWidth).arg(style::DevicePixelRatio()
 		).arg(toWidth
 		).arg(scaled.width()).arg(scaled.height()));
 		Unexpected("Scaled is null.");
@@ -350,7 +357,7 @@ void UpdateImageDetails(
 	Assert(!scaled.isNull());
 	file.preview = Images::Opaque(std::move(scaled));
 	Assert(!file.preview.isNull());
-	file.preview.setDevicePixelRatio(cRetinaFactor());
+	file.preview.setDevicePixelRatio(style::DevicePixelRatio());
 }
 
 bool ApplyModifications(PreparedList &list) {

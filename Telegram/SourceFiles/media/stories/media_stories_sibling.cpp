@@ -143,7 +143,7 @@ Sibling::LoaderVideo::LoaderVideo(
 	Fn<void()> update)
 : _video(video)
 , _origin(origin)
-, _update(std::move(                                                                                                                     update))
+, _update(std::move(update))
 , _media(_video->createMediaView()) {
 	_media->goodThumbnailWanted();
 }
@@ -336,7 +336,10 @@ QImage Sibling::userpicImage(const SiblingLayout &layout) {
 	const auto key = _peer->userpicUniqueKey(_userpicView);
 	if (_userpicImage.width() != size || _userpicKey != key) {
 		_userpicKey = key;
-		_userpicImage = _peer->generateUserpicImage(_userpicView, size);
+		_userpicImage = PeerData::GenerateUserpicImage(
+			_peer,
+			_userpicView,
+			size);
 		_userpicImage.setDevicePixelRatio(ratio);
 	}
 	return _userpicImage;
@@ -349,13 +352,11 @@ QImage Sibling::nameImage(const SiblingLayout &layout) {
 		const auto family = 0; // Default font family.
 		const auto font = style::font(
 			_nameFontSize,
-			style::internal::FontSemibold,
+			style::FontFlag::Semibold,
 			family);
 		_name.reset();
 		_nameStyle = std::make_unique<style::TextStyle>(style::TextStyle{
 			.font = font,
-			.linkFont = font,
-			.linkFontOver = font,
 		});
 	};
 	const auto text = _peer->isSelf()

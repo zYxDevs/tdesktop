@@ -28,39 +28,25 @@ QString SendData::getLayoutDescription(const Result *owner) const {
 	return owner->_description;
 }
 
-void SendDataCommon::addToHistory(
+not_null<HistoryItem*> SendDataCommon::makeMessage(
 		const Result *owner,
 		not_null<History*> history,
-		MessageFlags flags,
-		MsgId msgId,
-		PeerId fromId,
-		TimeId date,
-		UserId viaBotId,
-		FullReplyTo replyTo,
-		const QString &postAuthor,
-		HistoryMessageMarkupData &&markup) const {
-	auto fields = getSentMessageFields();
-	if (replyTo) {
-		flags |= MessageFlag::HasReplyInfo;
+		HistoryItemCommonFields &&fields) const {
+	auto distinct = getSentMessageFields();
+	if (fields.replyTo) {
+		fields.flags |= MessageFlag::HasReplyInfo;
 	}
-	history->addNewLocalMessage(
-		msgId,
-		flags,
-		viaBotId,
-		replyTo,
-		date,
-		fromId,
-		postAuthor,
-		std::move(fields.text),
-		std::move(fields.media),
-		std::move(markup));
+	return history->makeMessage(
+		std::move(fields),
+		std::move(distinct.text),
+		std::move(distinct.media));
 }
 
-QString SendDataCommon::getErrorOnSend(
+Data::SendError SendDataCommon::getErrorOnSend(
 		const Result *owner,
 		not_null<History*> history) const {
 	const auto type = ChatRestriction::SendOther;
-	return Data::RestrictionError(history->peer, type).value_or(QString());
+	return Data::RestrictionError(history->peer, type);
 }
 
 SendDataCommon::SentMessageFields SendText::getSentMessageFields() const {
@@ -84,7 +70,6 @@ SendDataCommon::SentMessageFields SendGeo::getSentMessageFields() const {
 }
 
 SendDataCommon::SentMessageFields SendVenue::getSentMessageFields() const {
-	const auto venueType = QString();
 	return { .media = MTP_messageMediaVenue(
 		_location.toMTP(),
 		MTP_string(_title),
@@ -111,96 +96,52 @@ QString SendContact::getLayoutDescription(const Result *owner) const {
 	return result;
 }
 
-void SendPhoto::addToHistory(
+not_null<HistoryItem*> SendPhoto::makeMessage(
 		const Result *owner,
 		not_null<History*> history,
-		MessageFlags flags,
-		MsgId msgId,
-		PeerId fromId,
-		TimeId date,
-		UserId viaBotId,
-		FullReplyTo replyTo,
-		const QString &postAuthor,
-		HistoryMessageMarkupData &&markup) const {
-	history->addNewLocalMessage(
-		msgId,
-		flags,
-		viaBotId,
-		replyTo,
-		date,
-		fromId,
-		postAuthor,
+		HistoryItemCommonFields &&fields) const {
+	return history->makeMessage(
+		std::move(fields),
 		_photo,
-		{ _message, _entities },
-		std::move(markup));
+		TextWithEntities{ _message, _entities });
 }
 
-QString SendPhoto::getErrorOnSend(
+Data::SendError SendPhoto::getErrorOnSend(
 		const Result *owner,
 		not_null<History*> history) const {
 	const auto type = ChatRestriction::SendPhotos;
-	return Data::RestrictionError(history->peer, type).value_or(QString());
+	return Data::RestrictionError(history->peer, type);
 }
 
-void SendFile::addToHistory(
+not_null<HistoryItem*> SendFile::makeMessage(
 		const Result *owner,
 		not_null<History*> history,
-		MessageFlags flags,
-		MsgId msgId,
-		PeerId fromId,
-		TimeId date,
-		UserId viaBotId,
-		FullReplyTo replyTo,
-		const QString &postAuthor,
-		HistoryMessageMarkupData &&markup) const {
-	history->addNewLocalMessage(
-		msgId,
-		flags,
-		viaBotId,
-		replyTo,
-		date,
-		fromId,
-		postAuthor,
+		HistoryItemCommonFields &&fields) const {
+	return history->makeMessage(
+		std::move(fields),
 		_document,
-		{ _message, _entities },
-		std::move(markup));
+		TextWithEntities{ _message, _entities });
 }
 
-QString SendFile::getErrorOnSend(
+Data::SendError SendFile::getErrorOnSend(
 		const Result *owner,
 		not_null<History*> history) const {
 	const auto type = _document->requiredSendRight();
-	return Data::RestrictionError(history->peer, type).value_or(QString());
+	return Data::RestrictionError(history->peer, type);
 }
 
-void SendGame::addToHistory(
+not_null<HistoryItem*> SendGame::makeMessage(
 		const Result *owner,
 		not_null<History*> history,
-		MessageFlags flags,
-		MsgId msgId,
-		PeerId fromId,
-		TimeId date,
-		UserId viaBotId,
-		FullReplyTo replyTo,
-		const QString &postAuthor,
-		HistoryMessageMarkupData &&markup) const {
-	history->addNewLocalMessage(
-		msgId,
-		flags,
-		viaBotId,
-		replyTo,
-		date,
-		fromId,
-		postAuthor,
-		_game,
-		std::move(markup));
+		HistoryItemCommonFields &&fields) const {
+	return history->makeMessage(std::move(fields), _game);
 }
 
-QString SendGame::getErrorOnSend(
+Data::SendError SendGame::getErrorOnSend(
 		const Result *owner,
 		not_null<History*> history) const {
 	const auto type = ChatRestriction::SendGames;
-	return Data::RestrictionError(history->peer, type).value_or(QString());
+	return Data::RestrictionError(history->peer, type);
 }
 
 SendDataCommon::SentMessageFields SendInvoice::getSentMessageFields() const {

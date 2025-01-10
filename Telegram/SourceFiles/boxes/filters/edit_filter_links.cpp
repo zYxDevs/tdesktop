@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/edit_peer_invite_link.h" // InviteLinkQrBox.
 #include "boxes/peer_list_box.h"
 #include "boxes/premium_limits_box.h"
+#include "core/ui_integration.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_chat_filters.h"
@@ -31,13 +32,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/vertical_layout.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/painter.h"
+#include "ui/rect.h"
+#include "ui/vertical_list.h"
 #include "window/window_session_controller.h"
 #include "styles/style_info.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
-
-#include <xxhash.h>
 
 namespace {
 
@@ -142,12 +143,12 @@ void ChatFilterLinkBox(
 			tr::lng_group_invite_label_header(),
 			data.title),
 		style::margins(
-			st::settingsSubsectionTitlePadding.left(),
-			st::settingsSectionSkip,
-			st::settingsSubsectionTitlePadding.right(),
-			st::settingsSectionSkip * 2));
+			st::defaultSubsectionTitlePadding.left(),
+			st::defaultVerticalListSkip,
+			st::defaultSubsectionTitlePadding.right(),
+			st::defaultVerticalListSkip * 2));
 	labelField->setMaxLength(kMaxLinkTitleLength);
-	Settings::AddDivider(container);
+	AddDivider(container);
 
 	box->setFocusCallback([=] {
 		labelField->setFocusFast();
@@ -223,14 +224,6 @@ private:
 
 };
 
-[[nodiscard]] uint64 ComputeRowId(const QString &link) {
-	return XXH64(link.data(), link.size() * sizeof(ushort), 0);
-}
-
-[[nodiscard]] uint64 ComputeRowId(const InviteLinkData &data) {
-	return ComputeRowId(data.url);
-}
-
 [[nodiscard]] Color ComputeColor(const InviteLinkData &link) {
 	return Color::Permanent;
 }
@@ -242,7 +235,7 @@ private:
 LinkRow::LinkRow(
 	not_null<LinkRowDelegate*> delegate,
 	const InviteLinkData &data)
-: PeerListRow(ComputeRowId(data))
+: PeerListRow(UniqueRowIdFromString(data.url))
 , _delegate(delegate)
 , _data(data)
 , _color(ComputeColor(data)) {
@@ -345,12 +338,13 @@ PaintRoundImageCallback ChatRow::generatePaintUserpicCallback(
 			int y,
 			int outerWidth,
 			int size) mutable {
+		using namespace Ui;
 		if (forceRound && peer->isForum()) {
 			ForceRoundUserpicCallback(peer)(p, x, y, outerWidth, size);
 		} else if (saved) {
-			Ui::EmptyUserpic::PaintSavedMessages(p, x, y, outerWidth, size);
+			EmptyUserpic::PaintSavedMessages(p, x, y, outerWidth, size);
 		} else if (replies) {
-			Ui::EmptyUserpic::PaintRepliesMessages(p, x, y, outerWidth, size);
+			EmptyUserpic::PaintRepliesMessages(p, x, y, outerWidth, size);
 		} else {
 			peer->paintUserpicLeft(p, userpic, x, y, outerWidth, size);
 		}
@@ -489,7 +483,7 @@ private:
 	const not_null<Window::SessionController*> _window;
 	InviteLinkData _data;
 
-	QString _filterTitle;
+	Data::ChatFilterTitle _filterTitle;
 	base::flat_set<not_null<History*>> _filterChats;
 	base::flat_map<not_null<PeerData*>, QString> _denied;
 	rpl::variable<base::flat_set<not_null<PeerData*>>> _selected;
@@ -542,6 +536,14 @@ void LinkController::addHeader(not_null<Ui::VerticalLayout*> container) {
 	}, verticalLayout->lifetime());
 	verticalLayout->add(std::move(icon.widget));
 
+	const auto isStatic = _filterTitle.isStatic;
+	const auto makeContext = [=](Fn<void()> update) {
+		return Core::MarkedTextContext{
+			.session = &_window->session(),
+			.customEmojiRepaint = update,
+			.customEmojiLoopLimit = isStatic ? -1 : 0,
+		};
+	};
 	verticalLayout->add(
 		object_ptr<Ui::CenterWrap<>>(
 			verticalLayout,
@@ -551,9 +553,13 @@ void LinkController::addHeader(not_null<Ui::VerticalLayout*> container) {
 					? tr::lng_filters_link_no_about(Ui::Text::WithEntities)
 					: tr::lng_filters_link_share_about(
 						lt_folder,
-						rpl::single(Ui::Text::Bold(_filterTitle)),
+						rpl::single(Ui::Text::Wrapped(
+							_filterTitle.text,
+							EntityType::Bold)),
 						Ui::Text::WithEntities)),
-				st::settingsFilterDividerLabel)),
+				st::settingsFilterDividerLabel,
+				st::defaultPopupMenu,
+				makeContext)),
 		st::filterLinkDividerLabelPadding);
 
 	verticalLayout->geometryValue(
@@ -585,19 +591,22 @@ void LinkController::addLinkBlock(not_null<Ui::VerticalLayout*> container) {
 		CopyInviteLink(delegate()->peerListUiShow(), link);
 	});
 	const auto shareLink = crl::guard(weak, [=] {
-		delegate()->peerListShowBox(
+		delegate()->peerListUiShow()->showBox(
 			ShareInviteLinkBox(&_window->session(), link));
 	});
 	const auto getLinkQr = crl::guard(weak, [=] {
-		delegate()->peerListShowBox(
-			InviteLinkQrBox(link, tr::lng_filters_link_qr_about()));
+		delegate()->peerListUiShow()->showBox(InviteLinkQrBox(
+			nullptr,
+			link,
+			tr::lng_group_invite_qr_title(),
+			tr::lng_filters_link_qr_about()));
 	});
 	const auto editLink = crl::guard(weak, [=] {
-		delegate()->peerListShowBox(
+		delegate()->peerListUiShow()->showBox(
 			Box(ChatFilterLinkBox, &_window->session(), _data));
 	});
 	const auto deleteLink = crl::guard(weak, [=] {
-		delegate()->peerListShowBox(DeleteLinkBox(_window, _data));
+		delegate()->peerListUiShow()->showBox(DeleteLinkBox(_window, _data));
 	});
 
 	const auto createMenu = [=] {
@@ -626,7 +635,7 @@ void LinkController::addLinkBlock(not_null<Ui::VerticalLayout*> container) {
 			&st::menuIconDelete);
 		return result;
 	};
-	AddSubsectionTitle(
+	Ui::AddSubsectionTitle(
 		container,
 		tr::lng_filters_link_subtitle(),
 		st::filterLinkSubsectionTitlePadding);
@@ -647,11 +656,11 @@ void LinkController::addLinkBlock(not_null<Ui::VerticalLayout*> container) {
 
 	AddCopyShareLinkButtons(container, copyLink, shareLink);
 
-	AddSkip(container, st::inviteLinkJoinedRowPadding.bottom() * 2);
+	Ui::AddSkip(container, st::inviteLinkJoinedRowPadding.bottom() * 2);
 
-	AddSkip(container);
+	Ui::AddSkip(container);
 
-	AddDivider(container);
+	Ui::AddDivider(container);
 }
 
 void LinkController::prepare() {
@@ -798,7 +807,7 @@ void LinkController::setupBelowWidget() {
 					? tr::lng_filters_link_chats_no_about()
 					: tr::lng_filters_link_chats_about()),
 				st::boxDividerLabel),
-			st::settingsDividerLabelPadding));
+			st::defaultBoxDividerLabelPadding));
 }
 
 Main::Session &LinkController::session() const {
@@ -856,7 +865,7 @@ void LinksController::rebuild(const std::vector<InviteLinkData> &rows) {
 
 void LinksController::rowClicked(not_null<PeerListRow*> row) {
 	const auto link = static_cast<LinkRow*>(row.get())->data();
-	delegate()->peerListShowBox(
+	delegate()->peerListUiShow()->showBox(
 		ShowLinkBox(_window, _currentFilter(), link));
 }
 
@@ -891,19 +900,22 @@ base::unique_qptr<Ui::PopupMenu> LinksController::createRowContextMenu(
 		CopyInviteLink(delegate()->peerListUiShow(), link);
 	};
 	const auto shareLink = [=] {
-		delegate()->peerListShowBox(
+		delegate()->peerListUiShow()->showBox(
 			ShareInviteLinkBox(&_window->session(), link));
 	};
 	const auto getLinkQr = [=] {
-		delegate()->peerListShowBox(
-			InviteLinkQrBox(link, tr::lng_filters_link_qr_about()));
+		delegate()->peerListUiShow()->showBox(InviteLinkQrBox(
+			nullptr,
+			link,
+			tr::lng_group_invite_qr_title(),
+			tr::lng_filters_link_qr_about()));
 	};
 	const auto editLink = [=] {
-		delegate()->peerListShowBox(
+		delegate()->peerListUiShow()->showBox(
 			Box(ChatFilterLinkBox, &_window->session(), data));
 	};
 	const auto deleteLink = [=] {
-		delegate()->peerListShowBox(DeleteLinkBox(_window, data));
+		delegate()->peerListUiShow()->showBox(DeleteLinkBox(_window, data));
 	};
 	auto result = base::make_unique_q<Ui::PopupMenu>(
 		parent,
@@ -970,9 +982,9 @@ void LinksController::rowPaintIcon(
 		p.setBrush(*bg);
 		{
 			auto hq = PainterHighQualityEnabler(p);
-			p.drawEllipse(QRect(0, 0, inner, inner));
+			p.drawEllipse(Rect(Size(inner)));
 		}
-		st::inviteLinkIcon.paintInCenter(p, { 0, 0, inner, inner });
+		st::inviteLinkIcon.paintInCenter(p, Rect(Size(inner)));
 	}
 	p.drawImage(x + skip, y + skip, icon);
 }
@@ -991,8 +1003,7 @@ bool GoodForExportFilterLink(
 		not_null<Window::SessionController*> window,
 		const Data::ChatFilter &filter) {
 	using Flag = Data::ChatFilter::Flag;
-	const auto listflags = Flag::Chatlist | Flag::HasMyLinks;
-	if (!filter.never().empty() || (filter.flags() & ~listflags)) {
+	if (!filter.never().empty() || (filter.flags() & Flag::RulesMask)) {
 		window->showToast(tr::lng_filters_link_cant(tr::now));
 		return false;
 	}
@@ -1119,7 +1130,7 @@ QString FilterChatStatusText(not_null<PeerData*> peer) {
 				? tr::lng_chat_status_subscribers
 				: tr::lng_chat_status_members)(
 					tr::now,
-					lt_count,
+					lt_count_decimal,
 					channel->membersCount());
 		}
 	}
@@ -1162,7 +1173,7 @@ void AddFilterSubtitleWithToggles(
 			font->width(tr::lng_filters_by_link_select(tr::now)),
 			font->width(tr::lng_filters_by_link_deselect(tr::now))));
 	}
-	const auto title = Settings::AddSubsectionTitle(
+	const auto title = Ui::AddSubsectionTitle(
 		container,
 		std::move(text),
 		padding);

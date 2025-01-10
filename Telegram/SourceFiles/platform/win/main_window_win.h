@@ -8,8 +8,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "platform/platform_main_window.h"
-#include "base/platform/win/base_windows_h.h"
 #include "base/flags.h"
+
+#include <windows.h>
 
 namespace Ui {
 class PopupMenu;
@@ -46,6 +47,11 @@ protected:
 	void workmodeUpdated(Core::Settings::WorkMode mode) override;
 
 	bool initGeometryFromSystem() override;
+
+	bool nativeEvent(
+		const QByteArray &eventType,
+		void *message,
+		native_event_filter_result *result) override;
 
 private:
 	struct Private;

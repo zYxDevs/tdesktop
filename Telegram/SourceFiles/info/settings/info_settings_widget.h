@@ -76,13 +76,22 @@ public:
 
 	rpl::producer<bool> desiredShadowVisibility() const override;
 
+	bool closeByOutsideClick() const override;
+	void checkBeforeClose(Fn<void()> close) override;
+	void checkBeforeCloseByEscape(Fn<void()> close) override;
 	rpl::producer<QString> title() override;
 
 	void enableBackButton() override;
 
+	rpl::producer<SelectedItems> selectedListValue() const override;
+	void selectionAction(SelectionAction action) override;
+	void fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) override;
+
 private:
 	void saveState(not_null<Memento*> memento);
 	void restoreState(not_null<Memento*> memento);
+
+	void paintEvent(QPaintEvent *e) override;
 
 	std::shared_ptr<ContentMemento> doCreateMemento() override;
 

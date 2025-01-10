@@ -12,7 +12,7 @@ You will require **api_id** and **api_hash** to access the Telegram API servers.
 
 Install [poetry](https://python-poetry.org), go to ***BuildPath*** and run
 
-    git clone --recursive https://github.com/telegramdesktop/tdesktop.git
+    git clone --recursive https://github.com/TDesktop-x64/tdesktop.git
     ./tdesktop/Telegram/build/prepare/linux.sh
 
 ### Building the project
@@ -20,7 +20,7 @@ Install [poetry](https://python-poetry.org), go to ***BuildPath*** and run
 Go to ***BuildPath*/tdesktop** and run (using [your **api_id** and **api_hash**](#obtain-your-api-credentials))
 
     docker run --rm -it \
-        -v $PWD:/usr/src/tdesktop \
+        -v "$PWD:/usr/src/tdesktop" \
         tdesktop:centos_env \
         /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
         -D TDESKTOP_API_ID=YOUR_API_ID \
@@ -29,15 +29,12 @@ Go to ***BuildPath*/tdesktop** and run (using [your **api_id** and **api_hash**]
 Or, to create a debug build, run (also using [your **api_id** and **api_hash**](#obtain-your-api-credentials))
 
     docker run --rm -it \
-        -v $PWD:/usr/src/tdesktop \
-        -e DEBUG=1 \
+        -v "$PWD:/usr/src/tdesktop" \
+        -e CONFIG=Debug \
         tdesktop:centos_env \
         /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
         -D TDESKTOP_API_ID=YOUR_API_ID \
         -D TDESKTOP_API_HASH=YOUR_API_HASH
-
-If you need a backward compatible binary (running on older OS like the official one), you should build the binary with LTO.  
-To do this, add `-D CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON` option.
 
 The built files will be in the `out` directory.
 

@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_photo_media.h"
 #include "data/data_file_origin.h"
 #include "data/data_session.h"
+#include "dialogs/dialogs_entry.h"
 #include "dialogs/ui/dialogs_layout.h"
 #include "ui/painter.h"
 #include "styles/style_dialogs.h"
@@ -99,7 +100,7 @@ Media::Clip::FrameRequest VideoUserpic::request(int size) const {
 	return {
 		.frame = { size, size },
 		.outer = { size, size },
-		.factor = cIntRetinaFactor(),
+		.factor = style::DevicePixelRatio(),
 		.radius = ImageRoundRadius::Ellipse,
 	};
 }

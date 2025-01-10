@@ -15,13 +15,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/click_handler_types.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "data/data_session.h"
-#include "data/data_sponsored_messages.h"
+#include "iv/iv_instance.h"
 #include "ui/text/text_custom_emoji.h"
 #include "ui/basic_click_handlers.h"
 #include "ui/emoji_config.h"
 #include "lang/lang_keys.h"
 #include "platform/platform_specific.h"
 #include "boxes/url_auth_box.h"
+#include "core/phone_click_handler.h"
 #include "main/main_account.h"
 #include "main/main_session.h"
 #include "main/main_app_config.h"
@@ -50,8 +51,13 @@ const auto kBadPrefix = u"http://"_q;
 [[nodiscard]] QString UrlWithAutoLoginToken(
 		const QString &url,
 		QUrl parsed,
-		const QString &domain) {
-	const auto &active = Core::App().activeAccount();
+		const QString &domain,
+		QVariant context) {
+	const auto my = context.value<ClickHandlerContext>();
+	const auto window = my.sessionWindow.get();
+	const auto &active = window
+		? window->session().account()
+		: Core::App().activeAccount();
 	const auto token = active.mtp().configValues().autologinToken;
 	const auto domains = active.appConfig().get<std::vector<QString>>(
 		"autologin_domains",
@@ -211,6 +217,8 @@ std::shared_ptr<ClickHandler> UiIntegration::createLinkHandler(
 		return std::make_shared<MonospaceClickHandler>(data.text, data.type);
 	case EntityType::Pre:
 		return std::make_shared<MonospaceClickHandler>(data.text, data.type);
+	case EntityType::Phone:
+		return std::make_shared<PhoneClickHandler>(my->session, data.text);
 	}
 	return Integration::createLinkHandler(data, context);
 }
@@ -229,22 +237,43 @@ bool UiIntegration::handleUrlClick(
 	} else if (local.startsWith(u"tg://"_q, Qt::CaseInsensitive)) {
 		Core::App().openLocalUrl(local, context);
 		return true;
+	} else if (local.startsWith(u"tonsite://"_q, Qt::CaseInsensitive)) {
+		Core::App().iv().showTonSite(local, context);
+		return true;
 	} else if (local.startsWith(u"internal:"_q, Qt::CaseInsensitive)) {
 		Core::App().openInternalUrl(local, context);
 		return true;
+	} else if (Iv::PreferForUri(url)
+		&& !context.value<ClickHandlerContext>().ignoreIv) {
+		const auto my = context.value<ClickHandlerContext>();
+		if (const auto controller = my.sessionWindow.get()) {
+			Core::App().iv().openWithIvPreferred(controller, url, context);
+			return true;
+		}
 	}
 
 	auto parsed = UrlForAutoLogin(url);
 	const auto domain = DomainForAutoLogin(parsed);
 	const auto skip = context.value<ClickHandlerContext>().skipBotAutoLogin;
 	if (skip || !BotAutoLogin(url, domain, context)) {
-		File::OpenUrl(UrlWithAutoLoginToken(url, std::move(parsed), domain));
+		File::OpenUrl(
+			UrlWithAutoLoginToken(url, std::move(parsed), domain, context));
+	}
+	return true;
+}
+
+bool UiIntegration::copyPreOnClick(const QVariant &context) {
+	const auto my = context.value<ClickHandlerContext>();
+	if (const auto window = my.sessionWindow.get()) {
+		window->showToast(tr::lng_code_copied(tr::now));
+	} else if (my.show) {
+		my.show->showToast(tr::lng_code_copied(tr::now));
 	}
 	return true;
 }
 
 std::unique_ptr<Ui::Text::CustomEmoji> UiIntegration::createCustomEmoji(
-		const QString &data,
+		QStringView data,
 		const std::any &context) {
 	const auto my = std::any_cast<MarkedTextContext>(&context);
 	if (!my || !my->session) {
@@ -257,23 +286,20 @@ std::unique_ptr<Ui::Text::CustomEmoji> UiIntegration::createCustomEmoji(
 		return std::make_unique<Ui::Text::LimitedLoopsEmoji>(
 			std::move(result),
 			my->customEmojiLoopLimit);
+	} else if (my->customEmojiLoopLimit) {
+		return std::make_unique<Ui::Text::FirstFrameEmoji>(
+			std::move(result));
 	}
 	return result;
 }
 
 Fn<void()> UiIntegration::createSpoilerRepaint(const std::any &context) {
 	const auto my = std::any_cast<MarkedTextContext>(&context);
-	return my ? my->customEmojiRepaint : nullptr;
-}
-
-bool UiIntegration::allowClickHandlerActivation(
-		const std::shared_ptr<ClickHandler> &handler,
-		const ClickContext &context) {
-	const auto my = context.other.value<ClickHandlerContext>();
-	if (const auto window = my.sessionWindow.get()) {
-		window->session().data().sponsoredMessages().clicked(my.itemId);
+	if (my) {
+		return my->customEmojiRepaint;
 	}
-	return true;
+	const auto common = std::any_cast<CommonTextContext>(&context);
+	return common ? common->repaint : nullptr;
 }
 
 rpl::producer<> UiIntegration::forcePopupMenuHideRequests() {
@@ -338,6 +364,10 @@ QString UiIntegration::phraseFormattingStrikeOut() {
 	return tr::lng_menu_formatting_strike_out(tr::now);
 }
 
+QString UiIntegration::phraseFormattingBlockquote() {
+	return tr::lng_menu_formatting_blockquote(tr::now);
+}
+
 QString UiIntegration::phraseFormattingMonospace() {
 	return tr::lng_menu_formatting_monospace(tr::now);
 }
@@ -392,6 +422,10 @@ QString UiIntegration::phraseBotAllowWriteTitle() {
 
 QString UiIntegration::phraseBotAllowWriteConfirm() {
 	return tr::lng_bot_allow_write_confirm(tr::now);
+}
+
+QString UiIntegration::phraseQuoteHeaderCopy() {
+	return tr::lng_code_block_header_copy(tr::now);
 }
 
 bool OpenGLLastCheckFailed() {

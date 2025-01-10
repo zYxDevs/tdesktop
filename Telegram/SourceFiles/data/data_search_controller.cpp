@@ -21,9 +21,113 @@ namespace {
 
 constexpr auto kSharedMediaLimit = 100;
 constexpr auto kFirstSharedMediaLimit = 0;
+constexpr auto kHistoryLimit = 50;
 constexpr auto kDefaultSearchTimeoutMs = crl::time(200);
 
 } // namespace
+
+MTPMessagesFilter PrepareSearchFilter(Storage::SharedMediaType type) {
+	using Type = Storage::SharedMediaType;
+	switch (type) {
+	case Type::Photo:
+		return MTP_inputMessagesFilterPhotos();
+	case Type::Video:
+		return MTP_inputMessagesFilterVideo();
+	case Type::PhotoVideo:
+		return MTP_inputMessagesFilterPhotoVideo();
+	case Type::MusicFile:
+		return MTP_inputMessagesFilterMusic();
+	case Type::File:
+		return MTP_inputMessagesFilterDocument();
+	case Type::VoiceFile:
+		return MTP_inputMessagesFilterVoice();
+	case Type::RoundVoiceFile:
+		return MTP_inputMessagesFilterRoundVoice();
+	case Type::RoundFile:
+		return MTP_inputMessagesFilterRoundVideo();
+	case Type::GIF:
+		return MTP_inputMessagesFilterGif();
+	case Type::Link:
+		return MTP_inputMessagesFilterUrl();
+	case Type::ChatPhoto:
+		return MTP_inputMessagesFilterChatPhotos();
+	case Type::Pinned:
+		return MTP_inputMessagesFilterPinned();
+	}
+	return MTP_inputMessagesFilterEmpty();
+}
+
+std::optional<GlobalMediaRequest> PrepareGlobalMediaRequest(
+		not_null<Main::Session*> session,
+		int32 offsetRate,
+		Data::MessagePosition offsetPosition,
+		Storage::SharedMediaType type,
+		const QString &query) {
+	const auto filter = PrepareSearchFilter(type);
+	if (query.isEmpty() && filter.type() == mtpc_inputMessagesFilterEmpty) {
+		return std::nullopt;
+	}
+
+	const auto minDate = 0;
+	const auto maxDate = 0;
+	const auto folderId = 0;
+	const auto limit = offsetPosition.fullId.peer
+		? kSharedMediaLimit
+		: kFirstSharedMediaLimit;
+	return MTPmessages_SearchGlobal(
+		MTP_flags(MTPmessages_SearchGlobal::Flag::f_folder_id), // No archive
+		MTP_int(folderId),
+		MTP_string(query),
+		filter,
+		MTP_int(minDate),
+		MTP_int(maxDate),
+		MTP_int(offsetRate),
+		(offsetPosition.fullId.peer
+			? session->data().peer(PeerId(offsetPosition.fullId.peer))->input
+			: MTP_inputPeerEmpty()),
+		MTP_int(offsetPosition.fullId.msg),
+		MTP_int(limit));
+}
+
+GlobalMediaResult ParseGlobalMediaResult(
+		not_null<Main::Session*> session,
+		const MTPmessages_Messages &data) {
+	auto result = GlobalMediaResult();
+
+	auto messages = (const QVector<MTPMessage>*)nullptr;
+	data.match([&](const MTPDmessages_messagesNotModified &) {
+	}, [&](const auto &data) {
+		session->data().processUsers(data.vusers());
+		session->data().processChats(data.vchats());
+		messages = &data.vmessages().v;
+	});
+	data.match([&](const MTPDmessages_messagesNotModified &) {
+	}, [&](const MTPDmessages_messages &data) {
+		result.fullCount = data.vmessages().v.size();
+	}, [&](const MTPDmessages_messagesSlice &data) {
+		result.fullCount = data.vcount().v;
+		result.offsetRate = data.vnext_rate().value_or_empty();
+	}, [&](const MTPDmessages_channelMessages &data) {
+		result.fullCount = data.vcount().v;
+	});
+	data.match([&](const MTPDmessages_channelMessages &data) {
+		LOG(("API Error: received messages.channelMessages when "
+			"no channel was passed! (ParseSearchResult)"));
+	}, [](const auto &) {});
+
+	const auto addType = NewMessageType::Existing;
+	result.messageIds.reserve(messages->size());
+	for (const auto &message : *messages) {
+		const auto item = session->data().addNewMessage(
+			message,
+			MessageFlags(),
+			addType);
+		if (item) {
+			result.messageIds.push_back(item->position());
+		}
+	}
+	return result;
+}
 
 std::optional<SearchRequest> PrepareSearchRequest(
 		not_null<PeerData*> peer,
@@ -32,36 +136,7 @@ std::optional<SearchRequest> PrepareSearchRequest(
 		const QString &query,
 		MsgId messageId,
 		Data::LoadDirection direction) {
-	const auto filter = [&] {
-		using Type = Storage::SharedMediaType;
-		switch (type) {
-		case Type::Photo:
-			return MTP_inputMessagesFilterPhotos();
-		case Type::Video:
-			return MTP_inputMessagesFilterVideo();
-		case Type::PhotoVideo:
-			return MTP_inputMessagesFilterPhotoVideo();
-		case Type::MusicFile:
-			return MTP_inputMessagesFilterMusic();
-		case Type::File:
-			return MTP_inputMessagesFilterDocument();
-		case Type::VoiceFile:
-			return MTP_inputMessagesFilterVoice();
-		case Type::RoundVoiceFile:
-			return MTP_inputMessagesFilterRoundVoice();
-		case Type::RoundFile:
-			return MTP_inputMessagesFilterRoundVideo();
-		case Type::GIF:
-			return MTP_inputMessagesFilterGif();
-		case Type::Link:
-			return MTP_inputMessagesFilterUrl();
-		case Type::ChatPhoto:
-			return MTP_inputMessagesFilterChatPhotos();
-		case Type::Pinned:
-			return MTP_inputMessagesFilterPinned();
-		}
-		return MTP_inputMessagesFilterEmpty();
-	}();
+	const auto filter = PrepareSearchFilter(type);
 	if (query.isEmpty() && filter.type() == mtpc_inputMessagesFilterEmpty) {
 		return std::nullopt;
 	}
@@ -97,6 +172,8 @@ std::optional<SearchRequest> PrepareSearchRequest(
 		peer->input,
 		MTP_string(query),
 		MTP_inputPeerEmpty(),
+		MTPInputPeer(), // saved_peer_id
+		MTPVector<MTPReaction>(), // saved_reaction
 		MTP_int(topicRootId),
 		filter,
 		MTP_int(0), // min_date
@@ -195,6 +272,60 @@ SearchResult ParseSearchResult(
 		}();
 	}
 	return result;
+}
+
+HistoryRequest PrepareHistoryRequest(
+		not_null<PeerData*> peer,
+		MsgId messageId,
+		Data::LoadDirection direction) {
+	const auto minId = 0;
+	const auto maxId = 0;
+	const auto limit = kHistoryLimit;
+	const auto offsetId = [&] {
+		switch (direction) {
+		case Data::LoadDirection::Before:
+		case Data::LoadDirection::Around: return messageId;
+		case Data::LoadDirection::After: return messageId + 1;
+		}
+		Unexpected("Direction in PrepareSearchRequest");
+	}();
+	const auto addOffset = [&] {
+		switch (direction) {
+		case Data::LoadDirection::Before: return 0;
+		case Data::LoadDirection::Around: return -limit / 2;
+		case Data::LoadDirection::After: return -limit;
+		}
+		Unexpected("Direction in PrepareSearchRequest");
+	}();
+	const auto hash = uint64(0);
+	const auto offsetDate = int32(0);
+
+	const auto mtpOffsetId = int(std::clamp(
+		offsetId.bare,
+		int64(0),
+		int64(0x3FFFFFFF)));
+	return MTPmessages_GetHistory(
+		peer->input,
+		MTP_int(mtpOffsetId),
+		MTP_int(offsetDate),
+		MTP_int(addOffset),
+		MTP_int(limit),
+		MTP_int(maxId),
+		MTP_int(minId),
+		MTP_long(hash));
+}
+
+HistoryResult ParseHistoryResult(
+		not_null<PeerData*> peer,
+		MsgId messageId,
+		Data::LoadDirection direction,
+		const HistoryRequestResult &data) {
+	return ParseSearchResult(
+		peer,
+		Storage::SharedMediaType::kCount,
+		messageId,
+		direction,
+		data);
 }
 
 SearchController::CacheEntry::CacheEntry(

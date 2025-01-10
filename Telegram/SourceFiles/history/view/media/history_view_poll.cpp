@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_poll.h"
 
+#include "core/ui_integration.h" // Core::MarkedTextContext.
 #include "lang/lang_keys.h"
 #include "history/history.h"
 #include "history/history_item.h"
@@ -154,7 +155,10 @@ struct Poll::SendingAnimation {
 struct Poll::Answer {
 	Answer();
 
-	void fillData(not_null<PollData*> poll, const PollAnswer &original);
+	void fillData(
+		not_null<PollData*> poll,
+		const PollAnswer &original,
+		Core::MarkedTextContext context);
 
 	Ui::Text::String text;
 	QByteArray option;
@@ -201,16 +205,18 @@ Poll::Answer::Answer() : text(st::msgMinWidth / 2) {
 
 void Poll::Answer::fillData(
 		not_null<PollData*> poll,
-		const PollAnswer &original) {
+		const PollAnswer &original,
+		Core::MarkedTextContext context) {
 	chosen = original.chosen;
 	correct = poll->quiz() ? original.correct : chosen;
-	if (!text.isEmpty() && text.toString() == original.text) {
+	if (!text.isEmpty() && text.toTextWithEntities() == original.text) {
 		return;
 	}
-	text.setText(
+	text.setMarkedText(
 		st::historyPollAnswerStyle,
 		original.text,
-		Ui::WebpageTextTitleOptions());
+		Ui::WebpageTextTitleOptions(),
+		context);
 }
 
 Poll::CloseInformation::CloseInformation(
@@ -383,13 +389,18 @@ void Poll::updateTexts() {
 	const auto willStartAnimation = checkAnimationStart();
 	const auto voted = _voted;
 
-	if (_question.toString() != _poll->question) {
+	if (_question.toTextWithEntities() != _poll->question) {
 		auto options = Ui::WebpageTextTitleOptions();
 		options.maxw = options.maxh = 0;
-		_question.setText(
+		_question.setMarkedText(
 			st::historyPollQuestionStyle,
 			_poll->question,
-			options);
+			options,
+			Core::MarkedTextContext{
+				.session = &_poll->session(),
+				.customEmojiRepaint = [=] { repaint(); },
+				.customEmojiLoopLimit = 2,
+			});
 	}
 	if (_flags != _poll->flags() || _subtitle.isEmpty()) {
 		using Flag = PollData::Flag;
@@ -514,6 +525,11 @@ void Poll::updateRecentVoters() {
 }
 
 void Poll::updateAnswers() {
+	const auto context = Core::MarkedTextContext{
+		.session = &_poll->session(),
+		.customEmojiRepaint = [=] { repaint(); },
+		.customEmojiLoopLimit = 2,
+	};
 	const auto changed = !ranges::equal(
 		_answers,
 		_poll->answers,
@@ -523,7 +539,7 @@ void Poll::updateAnswers() {
 	if (!changed) {
 		auto &&answers = ranges::views::zip(_answers, _poll->answers);
 		for (auto &&[answer, original] : answers) {
-			answer.fillData(_poll, original);
+			answer.fillData(_poll, original, context);
 		}
 		return;
 	}
@@ -532,7 +548,7 @@ void Poll::updateAnswers() {
 	) | ranges::views::transform([&](const PollAnswer &answer) {
 		auto result = Answer();
 		result.option = answer.option;
-		result.fillData(_poll, answer);
+		result.fillData(_poll, answer, context);
 		return result;
 	}) | ranges::to_vector;
 
@@ -761,7 +777,7 @@ void Poll::draw(Painter &p, const PaintContext &context) const {
 	auto &&answers = ranges::views::zip(
 		_answers,
 		ranges::views::ints(0, int(_answers.size())));
-	for (const auto [answer, index] : answers) {
+	for (const auto &[answer, index] : answers) {
 		const auto animation = _answersAnimation
 			? &_answersAnimation->data[index]
 			: nullptr;
@@ -803,9 +819,11 @@ void Poll::paintInlineFooter(
 		p,
 		left,
 		top,
-		std::min(
-			_totalVotesLabel.maxWidth(),
-			paintw - _parent->bottomInfoFirstLineWidth()),
+		_parent->data()->reactions().empty()
+			? std::min(
+				_totalVotesLabel.maxWidth(),
+				paintw - _parent->bottomInfoFirstLineWidth())
+			: _totalVotesLabel.maxWidth(),
 		width());
 }
 
@@ -833,7 +851,7 @@ void Poll::paintBottom(
 			p.setOpacity(st::historyPollRippleOpacity);
 			_linkRipple->paint(
 				p,
-				left - st::msgPadding.left(),
+				left - st::msgPadding.left() - _linkRippleShift,
 				height() - linkHeight,
 				width(),
 				&stm->msgWaveformInactive->c);

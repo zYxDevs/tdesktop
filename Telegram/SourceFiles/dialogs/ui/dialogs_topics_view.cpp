@@ -75,7 +75,7 @@ void TopicsView::prepare(MsgId frontRootId, Fn<void()> customEmojiRepaint) {
 		title.title.setMarkedText(
 			st::dialogsTextStyle,
 			(unread
-				? Ui::Text::PlainLink(
+				? Ui::Text::Colorized(
 					Ui::Text::Wrapped(
 						std::move(topicTitle),
 						EntityType::Bold))

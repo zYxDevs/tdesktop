@@ -19,7 +19,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
 #include "data/stickers/data_stickers.h"
-#include "data/stickers/data_stickers_set.h"
 #include "media/audio/media_audio.h"
 #include "media/player/media_player_instance.h"
 #include "media/streaming/media_streaming_loader_mtproto.h"
@@ -29,18 +28,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/streamed_file_downloader.h"
 #include "storage/file_download_mtproto.h"
 #include "storage/file_download_web.h"
-#include "platform/platform_specific.h"
-#include "platform/platform_file_utilities.h"
-#include "base/platform/base_platform_info.h"
 #include "base/options.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/view/media/history_view_gif.h"
 #include "window/window_session_controller.h"
-#include "storage/cache/storage_cache_database.h"
 #include "ui/boxes/confirm_box.h"
-#include "ui/image/image.h"
-#include "ui/text/text_utilities.h"
 #include "base/base_file_utilities.h"
 #include "mainwindow.h"
 #include "core/application.h"
@@ -55,6 +48,8 @@ namespace {
 
 constexpr auto kDefaultCoverThumbnailSize = 100;
 constexpr auto kMaxAllowedPreloadPrefix = 6 * 1024 * 1024;
+constexpr auto kDefaultWebmEmojiSize = 100;
+constexpr auto kDefaultWebmStickerLargerSize = kStickerSideSize;
 
 const auto kLottieStickerDimensions = QSize(
 	kStickerSideSize,
@@ -337,6 +332,8 @@ void DocumentData::setattributes(
 
 	validateLottieSticker();
 
+	auto wasVideoData = isVideoFile() ? std::move(_additional) : nullptr;
+
 	_videoPreloadPrefix = 0;
 	for (const auto &attribute : attributes) {
 		attribute.match([&](const MTPDdocumentAttributeImageSize &data) {
@@ -393,11 +390,21 @@ void DocumentData::setattributes(
 					: VideoDocument;
 				if (data.is_round_message()) {
 					_additional = std::make_unique<RoundData>();
-				} else if (const auto size = data.vpreload_prefix_size()) {
-					if (size->v > 0 && size->v < kMaxAllowedPreloadPrefix) {
-						_videoPreloadPrefix = size->v;
+				} else {
+					if (const auto size = data.vpreload_prefix_size()) {
+						if (size->v > 0
+							&& size->v < kMaxAllowedPreloadPrefix) {
+							_videoPreloadPrefix = size->v;
+						}
 					}
+					_additional = wasVideoData
+						? std::move(wasVideoData)
+						: std::make_unique<VideoData>();
+					video()->codec = qs(
+						data.vvideo_codec().value_or_empty());
 				}
+			} else if (type == VideoDocument && wasVideoData) {
+				_additional = std::move(wasVideoData);
 			} else if (const auto info = sticker()) {
 				info->type = StickerType::Webm;
 			}
@@ -437,6 +444,42 @@ void DocumentData::setattributes(
 			_flags |= Flag::HasAttachedStickers;
 		});
 	}
+
+	// Any "video/webm" file is treated as a video-sticker.
+	if (hasMimeType(u"video/webm"_q)) {
+		if (type == FileDocument) {
+			type = StickerDocument;
+			_additional = std::make_unique<StickerData>();
+		}
+		if (type == StickerDocument) {
+			sticker()->type = StickerType::Webm;
+		}
+	}
+
+	// If "video/webm" sticker without dimensions we set them to default.
+	if (const auto info = sticker(); info
+		&& info->set
+		&& info->type == StickerType::Webm
+		&& dimensions.isEmpty()) {
+		if (info->setType == Data::StickersType::Emoji) {
+			// Always fixed.
+			dimensions = { kDefaultWebmEmojiSize, kDefaultWebmEmojiSize };
+		} else if (info->setType == Data::StickersType::Stickers) {
+			// May have aspect != 1, so we count it from the thumbnail.
+			const auto thumbnail = QSize(
+				_thumbnail.location.width(),
+				_thumbnail.location.height()
+			).scaled(
+				kDefaultWebmStickerLargerSize,
+				kDefaultWebmStickerLargerSize,
+				Qt::KeepAspectRatio);
+			if (!thumbnail.isEmpty()) {
+				dimensions = thumbnail;
+			}
+		}
+	}
+
+	// Check sticker size/dimensions properties (for sticker of any type).
 	if (type == StickerDocument
 		&& ((size > Storage::kMaxStickerBytesSize)
 			|| (!sticker()->isLottie()
@@ -445,20 +488,141 @@ void DocumentData::setattributes(
 					dimensions.height())))) {
 		type = FileDocument;
 		_additional = nullptr;
-	} else if (type == FileDocument
-		&& hasMimeType(u"video/webm"_q)
-		&& (size < Storage::kMaxStickerBytesSize)
-		&& GoodStickerDimensions(dimensions.width(), dimensions.height())) {
-		type = StickerDocument;
-		_additional = std::make_unique<StickerData>();
-		sticker()->type = StickerType::Webm;
 	}
+
+	if (!_filename.isEmpty()) {
+		using Type = Core::NameType;
+		if (type == VideoDocument
+			|| type == AnimatedDocument
+			|| type == RoundVideoDocument
+			|| isAnimation()) {
+			if (!enforceNameType(Type::Video)) {
+				type = FileDocument;
+				_additional = nullptr;
+			}
+		}
+		if (type == SongDocument || type == VoiceDocument || isAudioFile()) {
+			if (!enforceNameType(Type::Audio)) {
+				type = FileDocument;
+				_additional = nullptr;
+			}
+		}
+		if (!Core::NameTypeAllowsThumbnail(_nameType)) {
+			_inlineThumbnailBytes = {};
+			_flags &= ~Flag::InlineThumbnailIsPath;
+			_thumbnail.clear();
+			_videoThumbnail.clear();
+		}
+	}
+
 	if (isAudioFile()
 		|| isAnimation()
 		|| isVoiceMessage()
 		|| storyMedia()) {
 		setMaybeSupportsStreaming(true);
 	}
+}
+
+void DocumentData::setVideoQualities(const QVector<MTPDocument> &list) {
+	auto qualities = std::vector<not_null<DocumentData*>>();
+	qualities.reserve(list.size());
+	for (const auto &document : list) {
+		qualities.push_back(owner().processDocument(document));
+	}
+	setVideoQualities(std::move(qualities));
+}
+
+void DocumentData::setVideoQualities(
+		std::vector<not_null<DocumentData*>> qualities) {
+	const auto data = video();
+	if (!data) {
+		return;
+	}
+	auto count = int(qualities.size());
+	if (qualities.empty()) {
+		return;
+	}
+	const auto good = [&](not_null<DocumentData*> document) {
+		return document->isVideoFile()
+			&& !document->dimensions.isEmpty()
+			&& !document->inappPlaybackFailed()
+			&& document->useStreamingLoader()
+			&& document->canBeStreamed(nullptr);
+	};
+	ranges::sort(
+		qualities,
+		ranges::greater(),
+		&DocumentData::resolveVideoQuality);
+	for (auto i = 0; i != count - 1;) {
+		const auto my = qualities[i];
+		const auto next = qualities[i + 1];
+		const auto myQuality = my->resolveVideoQuality();
+		const auto nextQuality = next->resolveVideoQuality();
+		const auto myGood = good(my);
+		const auto nextGood = good(next);
+		if (!myGood || !nextGood || myQuality == nextQuality) {
+			const auto removeMe = !myGood
+				|| (nextGood && (my->size > next->size));
+			const auto from = i + (removeMe ? 1 : 2);
+			for (auto j = from; j != count; ++j) {
+				qualities[j - 1] = qualities[j];
+			}
+			--count;
+		} else {
+			++i;
+		}
+	}
+	if (!qualities[count - 1]->resolveVideoQuality()) {
+		--count;
+	}
+	qualities.erase(qualities.begin() + count, qualities.end());
+	if (!qualities.empty()) {
+		if (const auto mine = resolveVideoQuality()) {
+			if (mine > qualities.front()->resolveVideoQuality()) {
+				qualities.insert(begin(qualities), this);
+			}
+		}
+	}
+	data->qualities = std::move(qualities);
+}
+
+int DocumentData::resolveVideoQuality() const {
+	const auto size = isVideoFile() ? dimensions : QSize();
+	return size.isEmpty() ? 0 : std::min(size.width(), size.height());
+}
+
+auto DocumentData::resolveQualities(HistoryItem *context) const
+-> const std::vector<not_null<DocumentData*>> & {
+	static const auto empty = std::vector<not_null<DocumentData*>>();
+	const auto info = video();
+	const auto media = context ? context->media() : nullptr;
+	if (!info || !media || media->document() != this) {
+		return empty;
+	}
+	return media->hasQualitiesList() ? info->qualities : empty;
+}
+
+not_null<DocumentData*> DocumentData::chooseQuality(
+		HistoryItem *context,
+		Media::VideoQuality request) {
+	const auto &list = resolveQualities(context);
+	if (list.empty() || !request.height) {
+		return this;
+	}
+	const auto height = int(request.height);
+	auto closest = this;
+	auto closestAbs = std::abs(height - resolveVideoQuality());
+	auto closestSize = size;
+	for (const auto &quality : list) {
+		const auto abs = std::abs(height - quality->resolveVideoQuality());
+		if (abs < closestAbs
+			|| (abs == closestAbs && quality->size < closestSize)) {
+			closest = quality;
+			closestAbs = abs;
+			closestSize = quality->size;
+		}
+	}
+	return closest;
 }
 
 void DocumentData::validateLottieSticker() {
@@ -490,8 +654,7 @@ bool DocumentData::checkWallPaperProperties() {
 	}
 	if (type != FileDocument
 		|| !hasThumbnail()
-		|| !dimensions.width()
-		|| !dimensions.height()
+		|| dimensions.isEmpty()
 		|| dimensions.width() > Storage::kMaxWallPaperDimension
 		|| dimensions.height() > Storage::kMaxWallPaperDimension
 		|| size > Storage::kMaxWallPaperInMemory) {
@@ -506,6 +669,10 @@ void DocumentData::updateThumbnails(
 		const ImageWithLocation &thumbnail,
 		const ImageWithLocation &videoThumbnail,
 		bool isPremiumSticker) {
+	if (!_filename.isEmpty()
+		&& !Core::NameTypeAllowsThumbnail(Core::DetectNameType(_filename))) {
+		return;
+	}
 	if (!inlineThumbnail.bytes.isEmpty()
 		&& _inlineThumbnailBytes.isEmpty()) {
 		_inlineThumbnailBytes = inlineThumbnail.bytes;
@@ -576,6 +743,14 @@ bool DocumentData::isPremiumEmoji() const {
 
 bool DocumentData::emojiUsesTextColor() const {
 	return (_flags & Flag::UseTextColor);
+}
+
+void DocumentData::overrideEmojiUsesTextColor(bool value) {
+	if (value) {
+		_flags |= Flag::UseTextColor;
+	} else {
+		_flags &= ~Flag::UseTextColor;
+	}
 }
 
 bool DocumentData::hasThumbnail() const {
@@ -748,7 +923,11 @@ Storage::Cache::Key DocumentData::bigFileBaseCacheKey() const {
 }
 
 void DocumentData::forceToCache(bool force) {
-	_flags |= Flag::ForceToCache;
+	if (force) {
+		_flags |= Flag::ForceToCache;
+	} else {
+		_flags &= ~Flag::ForceToCache;
+	}
 }
 
 bool DocumentData::saveToCache() const {
@@ -879,18 +1058,37 @@ void DocumentData::setFileName(const QString &remoteFileName) {
 	// in filenames, because they introduce a security issue, when
 	// an executable "Fil[x]gepj.exe" may look like "Filexe.jpeg".
 	QChar controls[] = {
-		0x200E, // LTR Mark
-		0x200F, // RTL Mark
-		0x202A, // LTR Embedding
-		0x202B, // RTL Embedding
-		0x202D, // LTR Override
-		0x202E, // RTL Override
-		0x2066, // LTR Isolate
-		0x2067, // RTL Isolate
+		QChar(0x200E), // LTR Mark
+		QChar(0x200F), // RTL Mark
+		QChar(0x202A), // LTR Embedding
+		QChar(0x202B), // RTL Embedding
+		QChar(0x202D), // LTR Override
+		QChar(0x202E), // RTL Override
+		QChar(0x2066), // LTR Isolate
+		QChar(0x2067), // RTL Isolate
 	};
 	for (const auto &ch : controls) {
 		_filename = std::move(_filename).replace(ch, "_");
 	}
+	_nameType = Core::DetectNameType(_filename);
+}
+
+bool DocumentData::enforceNameType(Core::NameType nameType) {
+	if (_nameType == nameType) {
+		return true;
+	}
+	const auto base = _filename.isEmpty() ? u"file"_q : _filename;
+	const auto mime = Core::MimeTypeForName(mimeString());
+	const auto patterns = mime.globPatterns();
+	for (const auto &pattern : mime.globPatterns()) {
+		const auto now = base + QString(pattern).replace('*', QString());
+		if (Core::DetectNameType(now) == nameType) {
+			_filename = now;
+			_nameType = nameType;
+			return true;
+		}
+	}
+	return false;
 }
 
 void DocumentData::setLoadedInMediaCacheLocation() {
@@ -1308,6 +1506,16 @@ const RoundData *DocumentData::round() const {
 	return const_cast<DocumentData*>(this)->round();
 }
 
+VideoData *DocumentData::video() {
+	return isVideoFile()
+		? static_cast<VideoData*>(_additional.get())
+		: nullptr;
+}
+
+const VideoData *DocumentData::video() const {
+	return const_cast<DocumentData*>(this)->video();
+}
+
 bool DocumentData::hasRemoteLocation() const {
 	return (_dc != 0 && _access != 0);
 }
@@ -1432,6 +1640,10 @@ QString DocumentData::filename() const {
 	return _filename;
 }
 
+Core::NameType DocumentData::nameType() const {
+	return _nameType;
+}
+
 QString DocumentData::mimeString() const {
 	return _mimeString;
 }
@@ -1499,7 +1711,10 @@ bool DocumentData::isVideoMessage() const {
 bool DocumentData::isAnimation() const {
 	return (type == AnimatedDocument)
 		|| isVideoMessage()
-		|| (hasMimeType(u"image/gif"_q)
+		|| ((_filename.isEmpty()
+			|| _nameType == Core::NameType::Image
+			|| _nameType == Core::NameType::Video)
+			&& hasMimeType(u"image/gif"_q)
 			&& !(_flags & Flag::StreamingPlaybackFailed));
 }
 
@@ -1509,9 +1724,11 @@ bool DocumentData::isGifv() const {
 }
 
 bool DocumentData::isTheme() const {
-	return hasMimeType(u"application/x-tgtheme-tdesktop"_q)
-		|| _filename.endsWith(u".tdesktop-theme"_q, Qt::CaseInsensitive)
-		|| _filename.endsWith(u".tdesktop-palette"_q, Qt::CaseInsensitive);
+	return _filename.endsWith(u".tdesktop-theme"_q, Qt::CaseInsensitive)
+		|| _filename.endsWith(u".tdesktop-palette"_q, Qt::CaseInsensitive)
+		|| (hasMimeType(u"application/x-tgtheme-tdesktop"_q)
+			&& (_filename.isEmpty()
+				|| _nameType == Core::NameType::ThemeFile));
 }
 
 bool DocumentData::isSong() const {
@@ -1533,6 +1750,10 @@ bool DocumentData::isAudioFile() const {
 		if (_filename.endsWith(u".opus"_q, Qt::CaseInsensitive)) {
 			return true;
 		}
+		return false;
+	} else if (!_filename.isEmpty()
+		&& _nameType != Core::NameType::Audio
+		&& _nameType != Core::NameType::Video) {
 		return false;
 	}
 	const auto left = _mimeString.mid(prefix.size());

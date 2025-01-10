@@ -14,33 +14,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace {
 
-[[nodiscard]] InlineBots::PeerTypes PeerTypesFromMTP(
-		const MTPvector<MTPInlineQueryPeerType> &types) {
-	using namespace InlineBots;
-	auto result = PeerTypes(0);
-	for (const auto &type : types.v) {
-		result |= type.match([&](const MTPDinlineQueryPeerTypePM &data) {
-			return PeerType::User;
-		}, [&](const MTPDinlineQueryPeerTypeChat &data) {
-			return PeerType::Group;
-		}, [&](const MTPDinlineQueryPeerTypeMegagroup &data) {
-			return PeerType::Group;
-		}, [&](const MTPDinlineQueryPeerTypeBroadcast &data) {
-			return PeerType::Broadcast;
-		}, [&](const MTPDinlineQueryPeerTypeBotPM &data) {
-			return PeerType::Bot;
-		}, [&](const MTPDinlineQueryPeerTypeSameBotPM &data) {
-			return PeerType();
-		});
-	}
-	return result;
-}
-
 [[nodiscard]] RequestPeerQuery RequestPeerQueryFromTL(
-		const MTPRequestPeerType &query) {
+		const MTPDkeyboardButtonRequestPeer &query) {
 	using Type = RequestPeerQuery::Type;
 	using Restriction = RequestPeerQuery::Restriction;
 	auto result = RequestPeerQuery();
+	result.maxQuantity = query.vmax_quantity().v;
 	const auto restriction = [](const MTPBool *value) {
 		return !value
 			? Restriction::Any
@@ -51,7 +30,7 @@ namespace {
 	const auto rights = [](const MTPChatAdminRights *value) {
 		return value ? ChatAdminRightsInfo(*value).flags : ChatAdminRights();
 	};
-	query.match([&](const MTPDrequestPeerTypeUser &data) {
+	query.vpeer_type().match([&](const MTPDrequestPeerTypeUser &data) {
 		result.type = Type::User;
 		result.userIsBot = restriction(data.vbot());
 		result.userIsPremium = restriction(data.vpremium());
@@ -74,6 +53,28 @@ namespace {
 }
 
 } // namespace
+
+InlineBots::PeerTypes PeerTypesFromMTP(
+		const MTPvector<MTPInlineQueryPeerType> &types) {
+	using namespace InlineBots;
+	auto result = PeerTypes(0);
+	for (const auto &type : types.v) {
+		result |= type.match([&](const MTPDinlineQueryPeerTypePM &data) {
+			return PeerType::User;
+		}, [&](const MTPDinlineQueryPeerTypeChat &data) {
+			return PeerType::Group;
+		}, [&](const MTPDinlineQueryPeerTypeMegagroup &data) {
+			return PeerType::Group;
+		}, [&](const MTPDinlineQueryPeerTypeBroadcast &data) {
+			return PeerType::Broadcast;
+		}, [&](const MTPDinlineQueryPeerTypeBotPM &data) {
+			return PeerType::Bot;
+		}, [&](const MTPDinlineQueryPeerTypeSameBotPM &data) {
+			return PeerType();
+		});
+	}
+	return result;
+}
 
 HistoryMessageMarkupButton::HistoryMessageMarkupButton(
 	Type type,
@@ -134,7 +135,7 @@ void HistoryMessageMarkupData::fillRows(
 				}, [&](const MTPDkeyboardButtonRequestPhone &data) {
 					row.emplace_back(Type::RequestPhone, qs(data.vtext()));
 				}, [&](const MTPDkeyboardButtonRequestPeer &data) {
-					const auto query = RequestPeerQueryFromTL(data.vpeer_type());
+					const auto query = RequestPeerQueryFromTL(data);
 					row.emplace_back(
 						Type::RequestPeer,
 						qs(data.vtext()),
@@ -208,6 +209,14 @@ void HistoryMessageMarkupData::fillRows(
 						Type::SimpleWebView,
 						qs(data.vtext()),
 						data.vurl().v);
+				}, [&](const MTPDkeyboardButtonCopy &data) {
+					row.emplace_back(
+						Type::CopyText,
+						qs(data.vtext()),
+						data.vcopy_text().v);
+				}, [&](const MTPDinputKeyboardButtonRequestPeer &data) {
+					LOG(("API Error: inputKeyboardButtonRequestPeer."));
+					// Should not get those for the users.
 				});
 			}
 			if (!row.empty()) {

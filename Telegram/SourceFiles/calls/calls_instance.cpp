@@ -522,20 +522,6 @@ void Instance::showInfoPanel(not_null<GroupCall*> call) {
 	}
 }
 
-void Instance::setCurrentAudioDevice(bool input, const QString &deviceId) {
-	if (input) {
-		Core::App().settings().setCallInputDeviceId(deviceId);
-	} else {
-		Core::App().settings().setCallOutputDeviceId(deviceId);
-	}
-	Core::App().saveSettingsDelayed();
-	if (const auto call = currentCall()) {
-		call->setCurrentAudioDevice(input, deviceId);
-	} else if (const auto group = currentGroupCall()) {
-		group->setCurrentAudioDevice(input, deviceId);
-	}
-}
-
 FnMut<void()> Instance::addAsyncWaiter() {
 	auto semaphore = std::make_unique<crl::semaphore>();
 	const auto raw = semaphore.get();
@@ -683,7 +669,8 @@ bool Instance::inCall() const {
 		return false;
 	}
 	const auto state = _currentCall->state();
-	return (state != Call::State::Busy);
+	return (state != Call::State::Busy)
+		&& (state != Call::State::WaitingUserConfirmation);
 }
 
 bool Instance::inGroupCall() const {
@@ -712,13 +699,24 @@ void Instance::destroyCurrentCall() {
 	}
 }
 
-bool Instance::hasActivePanel(not_null<Main::Session*> session) const {
+bool Instance::hasVisiblePanel(Main::Session *session) const {
 	if (inCall()) {
-		return (&_currentCall->user()->session() == session)
-			&& _currentCallPanel->isActive();
+		return _currentCallPanel->isVisible()
+			&& (!session || (&_currentCall->user()->session() == session));
 	} else if (inGroupCall()) {
-		return (&_currentGroupCall->peer()->session() == session)
-			&& _currentGroupCallPanel->isActive();
+		return _currentGroupCallPanel->isVisible()
+			&& (!session || (&_currentGroupCall->peer()->session() == session));
+	}
+	return false;
+}
+
+bool Instance::hasActivePanel(Main::Session *session) const {
+	if (inCall()) {
+		return _currentCallPanel->isActive()
+			&& (!session || (&_currentCall->user()->session() == session));
+	} else if (inGroupCall()) {
+		return _currentGroupCallPanel->isActive()
+			&& (!session || (&_currentGroupCall->peer()->session() == session));
 	}
 	return false;
 }
@@ -844,7 +842,7 @@ std::shared_ptr<tgcalls::VideoCaptureInterface> Instance::getVideoCapture(
 		if (deviceId) {
 			result->switchToDevice(
 				(deviceId->isEmpty()
-					? Core::App().settings().callVideoInputDeviceId()
+					? Core::App().settings().cameraDeviceId()
 					: *deviceId).toStdString(),
 				isScreenCapture);
 		}
@@ -852,7 +850,7 @@ std::shared_ptr<tgcalls::VideoCaptureInterface> Instance::getVideoCapture(
 	}
 	const auto startDeviceId = (deviceId && !deviceId->isEmpty())
 		? *deviceId
-		: Core::App().settings().callVideoInputDeviceId();
+		: Core::App().settings().cameraDeviceId();
 	auto result = std::shared_ptr<tgcalls::VideoCaptureInterface>(
 		tgcalls::VideoCaptureInterface::Create(
 			tgcalls::StaticThreads::getThreads(),

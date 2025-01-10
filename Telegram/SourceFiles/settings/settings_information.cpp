@@ -8,8 +8,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_information.h"
 
 #include "dialogs/dialogs_inner_widget.h" // kOptionCtrlClickChatNewWindow.
-#include "editor/photo_editor_layer_widget.h"
-#include "settings/settings_common.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/wrap/vertical_layout_reorder.h"
 #include "ui/wrap/padding_wrap.h"
@@ -25,8 +23,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "ui/delayed_activation.h"
 #include "ui/painter.h"
+#include "ui/vertical_list.h"
 #include "ui/unread_badge_paint.h"
+#include "ui/ui_utility.h"
 #include "core/application.h"
+#include "core/click_handler_types.h"
 #include "core/core_settings.h"
 #include "chat_helpers/emoji_suggestions_widget.h"
 #include "boxes/add_contact_box.h"
@@ -36,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "data/data_peer_values.h"
 #include "data/data_changes.h"
+#include "data/data_channel.h"
 #include "data/data_premium_limits.h"
 #include "info/profile/info_profile_values.h"
 #include "info/profile/info_profile_badge.h"
@@ -50,7 +52,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "api/api_peer_photo.h"
 #include "api/api_user_names.h"
-#include "core/file_utilities.h"
+#include "api/api_user_privacy.h"
 #include "base/call_delayed.h"
 #include "base/options.h"
 #include "base/unixtime.h"
@@ -63,7 +65,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_window.h"
 
 #include <QtGui/QGuiApplication>
-#include <QtGui/QClipboard>
 #include <QtCore/QBuffer>
 
 namespace Settings {
@@ -357,13 +358,100 @@ void AddRow(
 	}, wrap->lifetime());
 }
 
+void SetupBirthday(
+		not_null<Ui::VerticalLayout*> container,
+		not_null<Window::SessionController*> controller,
+		not_null<UserData*> self) {
+	const auto session = &self->session();
+
+	Ui::AddSkip(container);
+
+	auto value = rpl::combine(
+		Info::Profile::BirthdayValue(self),
+		tr::lng_settings_birthday_add()
+	) | rpl::map([](Data::Birthday birthday, const QString &add) {
+		const auto text = Data::BirthdayText(birthday);
+		return TextWithEntities{ !text.isEmpty() ? text : add };
+	});
+	const auto edit = [=] {
+		Core::App().openInternalUrl(
+			u"internal:edit_birthday"_q,
+			QVariant::fromValue(ClickHandlerContext{
+				.sessionWindow = base::make_weak(controller),
+			}));
+	};
+	AddRow(
+		container,
+		tr::lng_settings_birthday_label(),
+		std::move(value),
+		tr::lng_mediaview_copy(tr::now),
+		edit,
+		{ &st::menuIconGiftPremium });
+
+	const auto key = Api::UserPrivacy::Key::Birthday;
+	session->api().userPrivacy().reload(key);
+	auto isExactlyContacts = session->api().userPrivacy().value(
+		key
+	) | rpl::map([=](const Api::UserPrivacy::Rule &value) {
+		return (value.option == Api::UserPrivacy::Option::Contacts)
+			&& value.always.peers.empty()
+			&& !value.always.premiums
+			&& value.never.peers.empty();
+	}) | rpl::distinct_until_changed();
+
+	Ui::AddSkip(container);
+	Ui::AddDividerText(container, rpl::conditional(
+		std::move(isExactlyContacts),
+		tr::lng_settings_birthday_contacts(
+			lt_link,
+			tr::lng_settings_birthday_contacts_link(
+			) | Ui::Text::ToLink(u"internal:edit_privacy_birthday"_q),
+			Ui::Text::WithEntities),
+		tr::lng_settings_birthday_about(
+			lt_link,
+			tr::lng_settings_birthday_about_link(
+			) | Ui::Text::ToLink(u"internal:edit_privacy_birthday"_q),
+			Ui::Text::WithEntities)));
+}
+
+void SetupPersonalChannel(
+		not_null<Ui::VerticalLayout*> container,
+		not_null<Window::SessionController*> controller,
+		not_null<UserData*> self) {
+	Ui::AddSkip(container);
+
+	auto value = rpl::combine(
+		Info::Profile::PersonalChannelValue(self),
+		tr::lng_settings_channel_add()
+	) | rpl::map([](ChannelData *channel, const QString &add) {
+		return TextWithEntities{ channel ? channel->name() : add };
+	});
+	const auto edit = [=] {
+		Core::App().openInternalUrl(
+			u"internal:edit_personal_channel"_q,
+			QVariant::fromValue(ClickHandlerContext{
+				.sessionWindow = base::make_weak(controller),
+			}));
+	};
+	AddRow(
+		container,
+		tr::lng_settings_channel_label(),
+		std::move(value),
+		tr::lng_mediaview_copy(tr::now),
+		edit,
+		{ &st::menuIconChannel });
+
+	Ui::AddSkip(container);
+	Ui::AddDivider(container);
+}
+
 void SetupRows(
 		not_null<Ui::VerticalLayout*> container,
 		not_null<Window::SessionController*> controller,
 		not_null<UserData*> self) {
 	const auto session = &self->session();
 
-	AddSkip(container);
+	Ui::AddSkip(container);
 
 	AddRow(
 		container,
@@ -432,8 +520,8 @@ void SetupRows(
 		},
 		{ &st::menuIconUsername });
 
-	AddSkip(container);
-	AddDividerText(container, tr::lng_settings_username_about());
+	Ui::AddSkip(container);
+	Ui::AddDividerText(container, tr::lng_settings_username_about());
 }
 
 void SetupBio(
@@ -490,7 +578,7 @@ void SetupBio(
 		}
 		changed->fire(*current != text);
 		const auto limit = self->isPremium() ? premiumLimit : defaultLimit;
-		const auto countLeft = limit - int(text.size());
+		const auto countLeft = limit - Ui::ComputeFieldCharacterCount(bio);
 		countdown->setText(QString::number(countLeft));
 		countdown->setTextColorOverride(
 			countLeft < 0 ? st::boxTextFgError->c : std::optional<QColor>());
@@ -553,13 +641,13 @@ void SetupBio(
 		&self->session());
 	updated();
 
-	AddDividerText(container, tr::lng_settings_about_bio());
+	Ui::AddDividerText(container, tr::lng_settings_about_bio());
 }
 
 void SetupAccountsWrap(
 		not_null<Ui::VerticalLayout*> container,
 		not_null<Window::SessionController*> controller) {
-	AddSkip(container);
+	Ui::AddSkip(container);
 
 	SetupAccounts(container, controller);
 }
@@ -656,32 +744,28 @@ void SetupAccountsWrap(
 		if (which == Qt::LeftButton) {
 			callback(raw->clickModifiers());
 			return;
+		} else if (which == Qt::MiddleButton) {
+			callback(Qt::ControlModifier);
+			return;
 		} else if (which != Qt::RightButton) {
 			return;
 		}
-		if (!state->menu && IsAltShift(raw->clickModifiers()) && !locked) {
-			state->menu = base::make_unique_q<Ui::PopupMenu>(
-				raw,
-				st::popupMenuWithIcons);
-			Window::MenuAddMarkAsReadAllChatsAction(
-				window,
-				Ui::Menu::CreateAddActionCallback(state->menu));
-			state->menu->popup(QCursor::pos());
+		if (state->menu) {
 			return;
 		}
-		if (session == &window->session() || state->menu) {
-			return;
-		}
+		const auto isActive = session == &window->session();
 		state->menu = base::make_unique_q<Ui::PopupMenu>(
 			raw,
 			st::popupMenuExpandedSeparator);
 		const auto addAction = Ui::Menu::CreateAddActionCallback(
 			state->menu);
-		addAction(tr::lng_context_new_window(tr::now), [=] {
-			Ui::PreventDelayedActivation();
-			callback(Qt::ControlModifier);
-		}, &st::menuIconNewWindow);
-		Window::AddSeparatorAndShiftUp(addAction);
+		if (!isActive) {
+			addAction(tr::lng_context_new_window(tr::now), [=] {
+				Ui::PreventDelayedActivation();
+				callback(Qt::ControlModifier);
+			}, &st::menuIconNewWindow);
+			Window::AddSeparatorAndShiftUp(addAction);
+		}
 
 		addAction(tr::lng_profile_copy_phone(tr::now), [=] {
 			const auto phone = rpl::variable<TextWithEntities>(
@@ -690,31 +774,39 @@ void SetupAccountsWrap(
 		}, &st::menuIconCopy);
 
 		if (!locked) {
-			addAction(tr::lng_menu_activate(tr::now), [=] {
-				callback({});
-			}, &st::menuIconProfile);
+			if (!isActive) {
+				addAction(tr::lng_menu_activate(tr::now), [=] {
+					callback({});
+				}, &st::menuIconProfile);
+			}
+			Window::MenuAddMarkAsReadAllChatsAction(
+				session,
+				window->uiShow(),
+				addAction);
 		}
 
-		auto logoutCallback = [=] {
-			const auto callback = [=](Fn<void()> &&close) {
-				close();
-				Core::App().logoutWithChecks(&session->account());
+		if (!isActive) {
+			auto logoutCallback = [=] {
+				const auto callback = [=](Fn<void()> &&close) {
+					close();
+					Core::App().logoutWithChecks(&session->account());
+				};
+				window->show(
+					Ui::MakeConfirmBox({
+						.text = tr::lng_sure_logout(),
+						.confirmed = crl::guard(session, callback),
+						.confirmText = tr::lng_settings_logout(),
+						.confirmStyle = &st::attentionBoxButton,
+					}),
+					Ui::LayerOption::CloseOther);
 			};
-			window->show(
-				Ui::MakeConfirmBox({
-					.text = tr::lng_sure_logout(),
-					.confirmed = crl::guard(session, callback),
-					.confirmText = tr::lng_settings_logout(),
-					.confirmStyle = &st::attentionBoxButton,
-				}),
-				Ui::LayerOption::CloseOther);
-		};
-		addAction({
-			.text = tr::lng_settings_logout(tr::now),
-			.handler = std::move(logoutCallback),
-			.icon = &st::menuIconLeaveAttention,
-			.isAttention = true,
-		});
+			addAction({
+				.text = tr::lng_settings_logout(tr::now),
+				.handler = std::move(logoutCallback),
+				.icon = &st::menuIconLeaveAttention,
+				.isAttention = true,
+			});
+		}
 		state->menu->popup(QCursor::pos());
 	}, raw->lifetime());
 
@@ -782,7 +874,7 @@ not_null<Ui::SlideWrap<Ui::SettingsButton>*> AccountsList::setupAdd() {
 	const auto result = _outer->add(
 		object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
 			_outer.get(),
-			CreateButton(
+			CreateButtonWithIcon(
 				_outer.get(),
 				tr::lng_menu_add_account(),
 				st::mainMenuAddAccountButton,
@@ -804,7 +896,7 @@ not_null<Ui::SlideWrap<Ui::SettingsButton>*> AccountsList::setupAdd() {
 				found = true;
 			}
 		}
-		if (!found && domain.accounts().size() >= domain.maxAccounts()) {
+		if (!found && domain.accounts().size() >= 10) {
 			_controller->show(
 				Box(AccountsLimitBox, &_controller->session()));
 		} else if (newWindow) {
@@ -893,21 +985,19 @@ void AccountsList::rebuild() {
 					_closeRequests.fire({});
 					return;
 				}
-				const auto newWindow = (modifiers & Qt::ControlModifier)
-					&& base::options::lookup<bool>(
-						Dialogs::kOptionCtrlClickChatNewWindow).value();
+				const auto newWindow = (modifiers & Qt::ControlModifier);
 				auto activate = [=, guard = _accountSwitchGuard.make_guard()]{
 					if (guard) {
 						_reorder->finishReordering();
 						if (newWindow) {
 							_closeRequests.fire({});
-							Core::App().ensureSeparateWindowForAccount(
-								account);
+							Core::App().ensureSeparateWindowFor(account);
 						}
 						Core::App().domain().maybeActivate(account);
 					}
 				};
-				if (const auto window = Core::App().separateWindowForAccount(account)) {
+				if (const auto window = Core::App().separateWindowFor(
+						account)) {
 					_closeRequests.fire({});
 					window->activate();
 				} else {
@@ -961,6 +1051,8 @@ void Information::setupContent(
 	SetupPhoto(content, controller, self);
 	SetupBio(content, self);
 	SetupRows(content, controller, self);
+	SetupPersonalChannel(content, controller, self);
+	SetupBirthday(content, controller, self);
 	SetupAccountsWrap(content, controller);
 
 	Ui::ResizeFitChild(this, content);

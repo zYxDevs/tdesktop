@@ -15,9 +15,9 @@ namespace Data {
 class Story;
 } // namespace Data
 
-namespace Dialogs::Stories {
-class Thumbnail;
-} // namespace Dialogs::Stories
+namespace Ui {
+class DynamicImage;
+} // namespace Ui
 
 namespace HistoryView {
 
@@ -33,7 +33,7 @@ public:
 	QString title() override;
 	TextWithEntities subtitle() override;
 	int buttonSkip() override;
-	QString button() override;
+	rpl::producer<QString> button() override;
 	void draw(
 		Painter &p,
 		const PaintContext &context,
@@ -53,13 +53,11 @@ public:
 	void unloadHeavyPart() override;
 
 private:
-	using Thumbnail = Dialogs::Stories::Thumbnail;
-
 	bool changeSubscribedTo(uint32 value);
 
 	const not_null<Element*> _parent;
 	const not_null<Data::Story*> _story;
-	std::shared_ptr<Thumbnail> _thumbnail;
+	std::shared_ptr<Ui::DynamicImage> _thumbnail;
 	QBrush _unreadBrush;
 	uint32 _paletteVersion : 29 = 0;
 	uint32 _thumbnailFromStory : 1 = 0;

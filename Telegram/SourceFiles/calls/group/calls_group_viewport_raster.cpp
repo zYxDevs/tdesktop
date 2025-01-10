@@ -77,7 +77,8 @@ void Viewport::RendererSW::validateUserpicFrame(
 	}
 	const auto size = tile->trackOrUserpicSize();
 	data.userpicFrame = Images::BlurLargeImage(
-		tile->row()->peer()->generateUserpicImage(
+		PeerData::GenerateUserpicImage(
+			tile->row()->peer(),
 			tile->row()->ensureUserpicView(),
 			size.width(),
 			0),
@@ -105,14 +106,14 @@ void Viewport::RendererSW::paintTile(
 		tileData.blurredFrame = Images::BlurLargeImage(
 			data.original.scaled(
 				VideoTile::PausedVideoSize(),
-				Qt::KeepAspectRatio),
+				Qt::KeepAspectRatio).mirrored(tile->mirror(), false),
 			kBlurRadius);
 	}
 	const auto &image = _userpicFrame
 		? tileData.userpicFrame
 		: _pausedFrame
 		? tileData.blurredFrame
-		: data.original;
+		: data.original.mirrored(tile->mirror(), false);
 	const auto frameRotation = _userpicFrame ? 0 : data.rotation;
 	Assert(!image.isNull());
 

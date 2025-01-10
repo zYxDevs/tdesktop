@@ -10,8 +10,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_who_reacted.h" // FormatReadDate.
 #include "chat_helpers/compose/compose_show.h"
 #include "data/stickers/data_custom_emoji.h"
+#include "data/data_channel.h"
 #include "data/data_peer.h"
+#include "data/data_session.h"
 #include "data/data_stories.h"
+#include "history/history_item.h"
 #include "main/main_session.h"
 #include "media/stories/media_stories_controller.h"
 #include "lang/lang_keys.h"
@@ -51,7 +54,8 @@ constexpr auto kLoadViewsPages = 2;
 	static const auto size = st::storiesWhoViewed.userpics.size;
 
 	static const auto GenerateUserpic = [](Userpic &userpic) {
-		auto result = userpic.peer->generateUserpicImage(
+		auto result = PeerData::GenerateUserpicImage(
+			userpic.peer,
 			userpic.view,
 			size * style::DevicePixelRatio());
 		result.setDevicePixelRatio(style::DevicePixelRatio());
@@ -121,7 +125,34 @@ constexpr auto kLoadViewsPages = 2;
 	};
 }
 
+[[nodiscard]] QString ComposeRepostStatus(
+		const QString &date,
+		not_null<Data::Story*> repost) {
+	return date + (repost->repostModified()
+		? (QString::fromUtf8(" \xE2\x80\xA2 ") + tr::lng_edited(tr::now))
+		: !repost->caption().empty()
+		? (QString::fromUtf8(" \xE2\x80\xA2 ") + tr::lng_commented(tr::now))
+		: QString());
+}
+
 } // namespace
+
+RecentViewsType RecentViewsTypeFor(not_null<PeerData*> peer) {
+	return peer->isSelf()
+		? RecentViewsType::Self
+		: peer->isBroadcast()
+		? RecentViewsType::Channel
+		: peer->isServiceUser()
+		? RecentViewsType::Changelog
+		: RecentViewsType::Other;
+}
+
+bool CanViewReactionsFor(not_null<PeerData*> peer) {
+	if (const auto channel = peer->asChannel()) {
+		return channel->amCreator() || channel->hasAdminRights();
+	}
+	return false;
+}
 
 RecentViews::RecentViews(not_null<Controller*> controller)
 : _controller(controller) {
@@ -152,10 +183,14 @@ void RecentViews::show(
 	}
 	const auto countersChanged = _text.isEmpty()
 		|| (_data.total != data.total)
+		|| (_data.views != data.views)
+		|| (_data.forwards != data.forwards)
 		|| (_data.reactions != data.reactions);
 	const auto usersChanged = !_userpics || (_data.list != data.list);
+	const auto canViewReactions = data.canViewReactions
+		&& (data.reactions > 0 || data.forwards > 0);
 	_data = data;
-	if (!_data.self) {
+	if (_data.type != RecentViewsType::Self && !canViewReactions) {
 		_text = {};
 		_clickHandlerLifetime.destroy();
 		_userpicsLifetime.destroy();
@@ -177,13 +212,17 @@ void RecentViews::show(
 		refreshClickHandler();
 	}
 
-	if (!_data.channel) {
+	if (_data.type != RecentViewsType::Channel
+		&& _data.type != RecentViewsType::Changelog) {
 		_likeIcon = nullptr;
 		_likeWrap = nullptr;
 		_viewsWrap = nullptr;
 	} else {
-		_viewsCounter = Lang::FormatCountDecimal(std::max(_data.total, 1));
-		_likesCounter = _data.reactions
+		_viewsCounter = (_data.type == RecentViewsType::Channel)
+			? Lang::FormatCountDecimal(std::max(_data.views, 1))
+			: tr::lng_stories_cant_reply(tr::now);
+		_likesCounter = ((_data.type == RecentViewsType::Channel)
+			&& _data.reactions)
 			? Lang::FormatCountDecimal(_data.reactions)
 			: QString();
 		if (!_likeWrap || !_likeIcon || !_viewsWrap) {
@@ -201,7 +240,8 @@ Ui::RpWidget *RecentViews::likeIconWidget() const {
 }
 
 void RecentViews::refreshClickHandler() {
-	const auto nowEmpty = _data.list.empty();
+	const auto nowEmpty = (_data.type != RecentViewsType::Channel)
+		&& _data.list.empty();
 	const auto wasEmpty = !_clickHandlerLifetime;
 	const auto raw = _widget.get();
 	if (wasEmpty == nowEmpty) {
@@ -300,14 +340,19 @@ void RecentViews::setupViewsReactions() {
 		st::storiesViewsText);
 	views->show();
 	views->setAttribute(Qt::WA_TransparentForMouseEvents);
-	views->move(st::storiesViewsTextPosition);
 
 	views->widthValue(
 	) | rpl::start_with_next([=](int width) {
-		_viewsWrap->resize(views->x() + width, _likeIcon->height());
+		const auto left = (_data.type == RecentViewsType::Changelog)
+			? st::mediaviewCaptionPadding.left()
+			: st::storiesViewsTextPosition.x();
+		views->move(left, st::storiesViewsTextPosition.y());
+		_viewsWrap->resize(left + width, _likeIcon->height());
 		updateViewsReactionsGeometry();
 	}, _viewsWrap->lifetime());
-	_viewsWrap->paintRequest() | rpl::start_with_next([=] {
+	_viewsWrap->paintRequest() | rpl::filter([=] {
+		return (_data.type != RecentViewsType::Changelog);
+	}) | rpl::start_with_next([=] {
 		auto p = QPainter(_viewsWrap.get());
 		const auto &icon = st::storiesViewsIcon;
 		const auto top = (_viewsWrap->height() - icon.height()) / 2;
@@ -342,22 +387,30 @@ void RecentViews::setupViewsReactions() {
 }
 
 void RecentViews::updateViewsReactionsGeometry() {
-	_viewsWrap->move(_outer.topLeft() + st::storiesViewsPosition);
-	_likeWrap->move(_outer.topLeft()
-		+ QPoint(_outer.width() - _likeWrap->width(), 0)
+	const auto outerWidth = (_data.type == RecentViewsType::Changelog)
+		? std::max(_outer.width(), st::storiesChangelogFooterWidthMin)
+		: _outer.width();
+	const auto outerOrigin = _outer.topLeft()
+		+ QPoint((_outer.width() - outerWidth) / 2, 0);
+	_viewsWrap->move(outerOrigin + st::storiesViewsPosition);
+	_likeWrap->move(outerOrigin
+		+ QPoint(outerWidth - _likeWrap->width(), 0)
 		+ st::storiesLikesPosition);
 }
 
 void RecentViews::updatePartsGeometry() {
 	const auto skip = st::storiesRecentViewsSkip;
 	const auto full = _userpicsWidth + skip + _text.maxWidth();
+	const auto add = (_data.type == RecentViewsType::Channel)
+		? st::storiesViewsTextPosition.y()
+		: 0;
 	const auto use = std::min(full, _outer.width());
 	const auto ux = _outer.x() + (_outer.width() - use) / 2;
 	const auto uheight = st::storiesWhoViewed.userpics.size;
-	const auto uy = _outer.y() + (_outer.height() - uheight) / 2;
+	const auto uy = _outer.y() + (_outer.height() - uheight) / 2 + add;
 	const auto tx = ux + _userpicsWidth + skip;
 	const auto theight = st::normalFont->height;
-	const auto ty = _outer.y() + (_outer.height() - theight) / 2;
+	const auto ty = _outer.y() + (_outer.height() - theight) / 2 + add;
 	const auto my = std::min(uy, ty);
 	const auto mheight = std::max(uheight, theight);
 	const auto padding = skip;
@@ -368,8 +421,10 @@ void RecentViews::updatePartsGeometry() {
 }
 
 void RecentViews::updateText() {
-	const auto text = _data.total
-		? (tr::lng_stories_views(tr::now, lt_count, _data.total)
+	const auto text = (_data.type == RecentViewsType::Channel)
+		? tr::lng_stories_view_reactions(tr::now)
+		: _data.views
+		? (tr::lng_stories_views(tr::now, lt_count, _data.views)
 			+ (_data.reactions
 				? (u"  "_q + QChar(10084) + QString::number(_data.reactions))
 				: QString()))
@@ -379,7 +434,8 @@ void RecentViews::updateText() {
 }
 
 void RecentViews::showMenu() {
-	if (_menu || _data.list.empty()) {
+	if (_menu
+		|| (_data.type != RecentViewsType::Channel && _data.list.empty())) {
 		return;
 	}
 
@@ -398,7 +454,7 @@ void RecentViews::showMenu() {
 	const auto added = std::min(int(views.list.size()), kAddPerPage);
 	const auto add = std::min(views.total, kAddPerPage);
 	const auto now = QDateTime::currentDateTime();
-	for (const auto &entry  : views.list) {
+	for (const auto &entry : views.list) {
 		addMenuRow(entry, now);
 		if (++count >= add) {
 			break;
@@ -449,17 +505,33 @@ void RecentViews::addMenuRow(Data::StoryView entry, const QDateTime &now) {
 	Expects(_menu != nullptr);
 
 	const auto peer = entry.peer;
-	const auto date = Api::FormatReadDate(entry.date, now);
+	const auto repost = entry.repostId
+		? peer->owner().stories().lookup({ peer->id, entry.repostId })
+		: base::make_unexpected(Data::NoStory::Deleted);
+	const auto forward = entry.forwardId
+		? peer->owner().message({ peer->id, entry.forwardId })
+		: nullptr;
+	const auto date = Api::FormatReadDate(
+		repost ? (*repost)->date() : forward ? forward->date() : entry.date,
+		now);
+	const auto type = forward
+		? Ui::WhoReactedType::Forwarded
+		: repost
+		? Ui::WhoReactedType::Reposted
+		: Ui::WhoReactedType::Viewed;
+	const auto status = repost ? ComposeRepostStatus(date, *repost) : date;
 	const auto show = _controller->uiShow();
 	const auto prepare = [&](Ui::PeerUserpicView &view) {
 		const auto size = st::storiesWhoViewed.photoSize;
-		auto userpic = peer->generateUserpicImage(
+		auto userpic = PeerData::GenerateUserpicImage(
+			peer,
 			view,
 			size * style::DevicePixelRatio());
 		userpic.setDevicePixelRatio(style::DevicePixelRatio());
 		return Ui::WhoReactedEntryData{
 			.text = peer->name(),
-			.date = date,
+			.date = status,
+			.type = type,
 			.customEntityData = Data::ReactionEntityData(entry.reaction),
 			.userpic = std::move(userpic),
 			.callback = [=] { show->show(PrepareShortInfoBox(peer)); },
@@ -469,7 +541,8 @@ void RecentViews::addMenuRow(Data::StoryView entry, const QDateTime &now) {
 		const auto i = _menuEntries.end() - (_menuPlaceholderCount--);
 		auto data = prepare(i->view);
 		i->peer = peer;
-		i->date = date;
+		i->type = type;
+		i->status = status;
 		i->customEntityData = data.customEntityData;
 		i->callback = data.callback;
 		i->action->setData(std::move(data));
@@ -488,7 +561,8 @@ void RecentViews::addMenuRow(Data::StoryView entry, const QDateTime &now) {
 		_menuEntries.push_back({
 			.action = raw,
 			.peer = peer,
-			.date = date,
+			.type = type,
+			.status = status,
 			.customEntityData = std::move(customEntityData),
 			.callback = std::move(callback),
 			.view = std::move(view),
@@ -509,7 +583,7 @@ void RecentViews::addMenuRowPlaceholder(not_null<Main::Session*> session) {
 		_menu->menu(),
 		Data::ReactedMenuFactory(session),
 		_menu->menu()->st(),
-		Ui::WhoReactedEntryData{ .preloader = true });
+		Ui::WhoReactedEntryData{ .type = Ui::WhoReactedType::Preloader });
 	const auto raw = action.get();
 	_menu->addAction(std::move(action));
 	_menuEntries.push_back({ .action = raw });
@@ -526,11 +600,15 @@ void RecentViews::rebuildMenuTail() {
 	const auto added = std::min(
 		_menuPlaceholderCount + kAddPerPage,
 		int(views.list.size() - elements));
+	const auto height = _menu->height();
 	for (auto i = elements, till = i + added; i != till; ++i) {
 		const auto &entry = views.list[i];
 		addMenuRow(entry, now);
 	}
 	_menuEntriesCount = _menuEntriesCount.current() + added;
+	if (const auto delta = _menu->height() - height) {
+		_menu->move(_menu->x(), _menu->y() - delta);
+	}
 }
 
 void RecentViews::subscribeToMenuUserpicsLoading(
@@ -560,13 +638,15 @@ void RecentViews::subscribeToMenuUserpicsLoading(
 			const auto update = (entry.key != key);
 			if (update) {
 				const auto size = st::storiesWhoViewed.photoSize;
-				auto userpic = peer->generateUserpicImage(
+				auto userpic = PeerData::GenerateUserpicImage(
+					peer,
 					view,
 					size * style::DevicePixelRatio());
 				userpic.setDevicePixelRatio(style::DevicePixelRatio());
 				entry.action->setData({
 					.text = peer->name(),
-					.date = entry.date,
+					.date = entry.status,
+					.type = entry.type,
 					.customEntityData = entry.customEntityData,
 					.userpic = std::move(userpic),
 					.callback = entry.callback,

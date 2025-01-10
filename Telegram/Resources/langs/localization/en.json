@@ -1,10 +1,9 @@
-﻿{
+{
     "lng_intro_about2": "Welcome to the 64Gram Desktop app.\nIt's fast and secure.",
 
     "lng_settings_enhanced": "Enhanced Settings",
     "lng_settings_network": "Network",
     "lng_settings_net_upload_speed_boost": "Upload speed boost",
-    "lng_settings_net_download_speed_boost": "Download speed boost",
     "lng_settings_show_message_id": "Show message ID",
     "lng_settings_button": "Button",
     "lng_settings_show_emoji_button_as_text": "Show emoji button as text",
@@ -26,13 +25,19 @@
     "lng_settings_disable_link_warning": "Disable open link warning",
     "lng_settings_hide_messages": "Hide messages from blocked user",
     "lng_settings_disable_premium_animation": "Disable Premium Animation",
+    "lng_settings_disable_global_search": "Disable global search",
+    "lng_settings_show_group_sender_avatar": "Show sender's avatar in groups",
     "lng_settings_show_seconds": "Time with seconds",
     "lng_settings_hide_counter": "Hide online users counter",
     "lng_settings_hide_stories": "Hide Stories",
+    "lng_settings_screen_shot_mode": "Screenshot Mode",
     "lng_settings_restart_hint": "WARNING: Changing options that are colored in red will take effect only after the app restarts.",
 
     "lng_settings_skip_message": "Skip to next unread chat",
     "lng_settings_skip_message_desc": "Note: Allow ALT+↑/↓ shortcut to skip to next unread chat",
+
+    "lng_settings_recent_display_limit": "Recent sticker display limit",
+    "lng_settings_recent_display_limit_default": "Default (20)",
 
     "lng_net_speed_boost_title": "Network speed boost",
     "lng_net_speed_boost_desc": "Warning: changing this parameter to high values on slow networks can make it even worse. Use it at your own risk.",

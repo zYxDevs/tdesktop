@@ -13,6 +13,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/round_rect.h"
 #include "base/timer.h"
 
+class StickerPremiumMark;
+
 namespace style {
 struct EmojiPan;
 } // namespace style
@@ -44,6 +46,7 @@ enum class Section;
 } // namespace Ui::Emoji
 
 namespace Ui::Text {
+class CustomEmoji;
 struct CustomEmojiPaintContext;
 } // namespace Ui::Text
 
@@ -71,19 +74,25 @@ enum class EmojiListMode {
 	Full,
 	TopicIcon,
 	EmojiStatus,
+	ChannelStatus,
 	FullReactions,
 	RecentReactions,
 	UserpicBuilder,
+	BackgroundEmoji,
+	PeerTitle,
+	MessageEffects,
 };
 
 struct EmojiListDescriptor {
 	std::shared_ptr<Show> show;
 	EmojiListMode mode = EmojiListMode::Full;
+	Fn<QColor()> customTextColor;
 	Fn<bool()> paused;
 	std::vector<DocumentId> customRecentList;
 	Fn<std::unique_ptr<Ui::Text::CustomEmoji>(
 		DocumentId,
 		Fn<void()>)> customRecentFactory;
+	base::flat_set<DocumentId> freeEffects;
 	const style::EmojiPan *st = nullptr;
 	ComposeFeatures features;
 };
@@ -114,6 +123,7 @@ public:
 	void showSet(uint64 setId);
 	[[nodiscard]] uint64 currentSet(int yOffset) const;
 	void setAllowWithoutPremium(bool allow);
+	void showMegagroupSet(ChannelData *megagroup);
 
 	// Ui::AbstractTooltipShower interface.
 	QString tooltipText() const override;
@@ -139,7 +149,10 @@ public:
 		RectPart origin);
 
 	base::unique_qptr<Ui::PopupMenu> fillContextMenu(
-		SendMenu::Type type) override;
+		const SendMenu::Details &details) override;
+
+	[[nodiscard]] rpl::producer<std::vector<QString>> searchQueries() const;
+	[[nodiscard]] rpl::producer<int> recentShownCount() const;
 
 protected:
 	void visibleTopBottomUpdated(
@@ -254,6 +267,13 @@ private:
 	void colorChosen(EmojiChosen data);
 	bool checkPickerHide();
 	void refreshCustom();
+	enum class GroupStickersPlace {
+		Visible,
+		Hidden,
+	};
+	void refreshMegagroupStickers(
+		Fn<void(uint64 setId, bool installed)> push,
+		GroupStickersPlace place);
 	void unloadNotSeenCustom(int visibleTop, int visibleBottom);
 	void unloadAllCustom();
 	void unloadCustomIn(const SectionInfo &info);
@@ -276,6 +296,8 @@ private:
 		int index);
 
 	[[nodiscard]] EmojiPtr lookupOverEmoji(const OverEmoji *over) const;
+	[[nodiscard]] DocumentData *lookupCustomEmoji(
+		const OverEmoji *over) const;
 	[[nodiscard]] DocumentData *lookupCustomEmoji(
 		int index,
 		int section) const;
@@ -337,6 +359,7 @@ private:
 
 	void displaySet(uint64 setId);
 	void removeSet(uint64 setId);
+	void removeMegagroupSet(bool locally);
 
 	void initButton(RightButton &button, const QString &text, bool gradient);
 	[[nodiscard]] std::unique_ptr<Ui::RippleAnimation> createButtonRipple(
@@ -359,16 +382,22 @@ private:
 		DocumentId documentId,
 		uint64 setId);
 
+	void showPreview();
+
 	void applyNextSearchQuery();
 
 	const std::shared_ptr<Show> _show;
 	const ComposeFeatures _features;
+	const bool _onlyUnicodeEmoji;
 	Mode _mode = Mode::Full;
 	std::unique_ptr<Ui::TabbedSearch> _search;
+	MTP::Sender _api;
 	const int _staticCount = 0;
 	StickersListFooter *_footer = nullptr;
 	std::unique_ptr<GradientPremiumStar> _premiumIcon;
 	std::unique_ptr<LocalStickersManager> _localSetsManager;
+	ChannelData *_megagroupSet = nullptr;
+	uint64 _megagroupSetIdRequested = 0;
 	Fn<std::unique_ptr<Ui::Text::CustomEmoji>(
 		DocumentId,
 		Fn<void()>)> _customRecentFactory;
@@ -376,25 +405,33 @@ private:
 	int _counts[kEmojiSectionCount];
 	std::vector<RecentOne> _recent;
 	base::flat_set<DocumentId> _recentCustomIds;
+	base::flat_set<DocumentId> _freeEffects;
 	base::flat_set<uint64> _repaintsScheduled;
+	rpl::variable<int> _recentShownCount;
 	std::unique_ptr<Ui::Text::CustomEmojiPaintContext> _emojiPaintContext;
 	bool _recentPainted = false;
 	bool _grabbingChosen = false;
+	bool _paintAsPremium = false;
 	QVector<EmojiPtr> _emoji[kEmojiSectionCount];
 	std::vector<CustomSet> _custom;
+	base::flat_set<DocumentId> _restrictedCustomList;
 	base::flat_map<DocumentId, CustomEmojiInstance> _customEmoji;
 	base::flat_map<
 		DocumentId,
 		std::unique_ptr<Ui::Text::CustomEmoji>> _customRecent;
+	Fn<QColor()> _customTextColor;
 	int _customSingleSize = 0;
 	bool _allowWithoutPremium = false;
 	Ui::RoundRect _overBg;
 	QImage _searchExpandCache;
 
+	std::unique_ptr<StickerPremiumMark> _premiumMark;
+	QImage _premiumMarkFrameCache;
 	mutable std::unique_ptr<Ui::RippleAnimation> _colorAllRipple;
 	bool _colorAllRippleForced = false;
 	rpl::lifetime _colorAllRippleForcedLifetime;
 
+	rpl::event_stream<std::vector<QString>> _searchQueries;
 	std::vector<QString> _nextSearchQuery;
 	std::vector<QString> _searchQuery;
 	base::flat_set<EmojiPtr> _searchEmoji;
@@ -423,6 +460,8 @@ private:
 
 	object_ptr<EmojiColorPicker> _picker;
 	base::Timer _showPickerTimer;
+	base::Timer _previewTimer;
+	bool _previewShown = false;
 
 	rpl::event_stream<EmojiChosen> _chosen;
 	rpl::event_stream<FileChosen> _customChosen;

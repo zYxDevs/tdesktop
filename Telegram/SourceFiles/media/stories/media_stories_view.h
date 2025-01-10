@@ -7,6 +7,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+class ClickHandlerHost;
+
+namespace ChatHelpers {
+class Show;
+} // namespace ChatHelpers
+
 namespace Data {
 class Story;
 struct StoriesContext;
@@ -58,6 +64,15 @@ struct SiblingView {
 	}
 };
 
+struct RepostClickHandler {
+	ClickHandlerPtr link;
+	ClickHandlerHost *host = nullptr;
+
+	explicit operator bool() const {
+		return link && host;
+	}
+};
+
 inline constexpr auto kCollapsedCaptionLines = 2;
 inline constexpr auto kMaxShownCaptionLines = 4;
 
@@ -78,7 +93,13 @@ public:
 	[[nodiscard]] Data::FileOrigin fileOrigin() const;
 	[[nodiscard]] TextWithEntities captionText() const;
 	[[nodiscard]] bool skipCaption() const;
+	[[nodiscard]] bool repost() const;
 	void showFullCaption();
+
+	[[nodiscard]] QMargins repostCaptionPadding() const;
+	void drawRepostInfo(Painter &p, int x, int y, int availableWidth) const;
+	[[nodiscard]] RepostClickHandler lookupRepostHandler(
+		QPoint position) const;
 
 	void updatePlayback(const Player::TrackState &state);
 	[[nodiscard]] ClickHandlerPtr lookupAreaHandler(QPoint point) const;
@@ -95,7 +116,7 @@ public:
 	void shareRequested();
 	void deleteRequested();
 	void reportRequested();
-	void togglePinnedRequested(bool pinned);
+	void toggleInProfileRequested(bool inProfile);
 
 	[[nodiscard]] bool ignoreWindowMove(QPoint position) const;
 	void tryProcessKeyInput(not_null<QKeyEvent*> e);
@@ -107,6 +128,8 @@ public:
 	[[nodiscard]] AttachStripResult attachReactionsToMenu(
 		not_null<Ui::PopupMenu*> menu,
 		QPoint desiredPosition);
+
+	[[nodiscard]] std::shared_ptr<ChatHelpers::Show> uiShow() const;
 
 	[[nodiscard]] rpl::lifetime &lifetime();
 

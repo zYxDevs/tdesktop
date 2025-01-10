@@ -7,25 +7,35 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/peers/peer_short_info_box.h"
 
-#include "ui/effects/radial_animation.h"
-#include "ui/widgets/labels.h"
-#include "ui/widgets/scroll_area.h"
-#include "ui/wrap/vertical_layout.h"
-#include "ui/wrap/slide_wrap.h"
-#include "ui/wrap/wrap.h"
-#include "ui/image/image_prepare.h"
-#include "ui/text/text_utilities.h"
-#include "ui/painter.h"
+#include "base/event_filter.h"
+#include "core/application.h"
 #include "info/profile/info_profile_text.h"
+#include "info/profile/info_profile_values.h"
+#include "lang/lang_keys.h"
 #include "media/streaming/media_streaming_instance.h"
 #include "media/streaming/media_streaming_player.h"
-#include "base/event_filter.h"
-#include "lang/lang_keys.h"
+#include "ui/effects/radial_animation.h"
+#include "ui/image/image_prepare.h"
+#include "ui/painter.h"
+#include "ui/text/text_utilities.h"
+#include "ui/widgets/labels.h"
+#include "ui/widgets/menu/menu_add_action_callback.h"
+#include "ui/widgets/menu/menu_add_action_callback_factory.h"
+#include "ui/widgets/popup_menu.h"
+#include "ui/widgets/scroll_area.h"
+#include "ui/wrap/slide_wrap.h"
+#include "ui/wrap/vertical_layout.h"
+#include "ui/wrap/wrap.h"
+#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "styles/style_boxes.h"
-#include "styles/style_layers.h"
 #include "styles/style_info.h"
+#include "styles/style_layers.h"
+#include "styles/style_menu_icons.h"
 
 namespace {
+
+using MenuCallback = Ui::Menu::MenuCallback;
 
 constexpr auto kShadowMaxAlpha = 80;
 constexpr auto kInactiveBarOpacity = 0.5;
@@ -397,7 +407,7 @@ void PeerShortInfoCover::paintRadial(QPainter &p) {
 QImage PeerShortInfoCover::currentVideoFrame() const {
 	const auto size = QSize(_st.size, _st.size);
 	const auto request = Media::Streaming::FrameRequest{
-		.resize = size * style::DevicePixelRatio(),
+		.resize = size,
 		.outer = size,
 	};
 	return (_videoInstance
@@ -533,15 +543,16 @@ void PeerShortInfoCover::handleStreamingUpdate(
 
 	v::match(update.data, [&](Information &update) {
 		streamingReady(std::move(update));
-	}, [&](const PreloadedVideo &update) {
-	}, [&](const UpdateVideo &update) {
+	}, [](PreloadedVideo) {
+	}, [&](UpdateVideo update) {
 		_videoPosition = update.position;
 		_widget->update();
-	}, [&](const PreloadedAudio &update) {
-	}, [&](const UpdateAudio &update) {
-	}, [&](const WaitingForData &update) {
-	}, [&](MutedByOther) {
-	}, [&](Finished) {
+	}, [](PreloadedAudio) {
+	}, [](UpdateAudio) {
+	}, [](WaitingForData) {
+	}, [](SpeedEstimate) {
+	}, [](MutedByOther) {
+	}, [](Finished) {
 	});
 }
 
@@ -720,6 +731,7 @@ void PeerShortInfoBox::prepare() {
 	_roundedTop.setDevicePixelRatio(style::DevicePixelRatio());
 	refreshRoundedTopImage(getDelegate()->style().bg->c);
 
+	setCustomCornersFilling(RectPart::FullTop);
 	setDimensionsToContent(st::shortInfoWidth, _rows);
 }
 
@@ -773,6 +785,10 @@ void PeerShortInfoBox::prepareRows() {
 		return result;
 	};
 	addInfoOneLine(
+		tr::lng_settings_channel_label(),
+		channelValue(),
+		tr::lng_context_copy_link(tr::now));
+	addInfoOneLine(
 		tr::lng_info_link_label(),
 		linkValue(),
 		tr::lng_context_copy_link(tr::now));
@@ -792,10 +808,10 @@ void PeerShortInfoBox::prepareRows() {
 		rpl::single(QString("ID")),
 		userIdValue() | Ui::Text::ToWithEntities(),
 		tr::lng_context_copy_text(tr::now));
-}
-
-RectParts PeerShortInfoBox::customCornersFilling() {
-	return RectPart::FullTop;
+	addInfoOneLine(
+		birthdayLabel(),
+		birthdayValue() | Ui::Text::ToWithEntities(),
+		tr::lng_mediaview_copy(tr::now));
 }
 
 void PeerShortInfoBox::resizeEvent(QResizeEvent *e) {
@@ -830,28 +846,71 @@ void PeerShortInfoBox::refreshRoundedTopImage(const QColor &color) {
 		RectPart::TopLeft | RectPart::TopRight);
 }
 
+rpl::producer<MenuCallback> PeerShortInfoBox::fillMenuRequests() const {
+	return _fillMenuRequests.events();
+}
+
+void PeerShortInfoBox::contextMenuEvent(QContextMenuEvent *e) {
+	_menuHolder = nullptr;
+	const auto menu = Ui::CreateChild<Ui::PopupMenu>(
+		this,
+		st::popupMenuWithIcons);
+	_fillMenuRequests.fire(Ui::Menu::CreateAddActionCallback(menu));
+	_menuHolder.reset(menu);
+	if (menu->empty()) {
+		_menuHolder = nullptr;
+		return;
+	}
+	menu->popup(e->globalPos());
+}
+
 rpl::producer<QString> PeerShortInfoBox::nameValue() const {
-	return _fields.value() | rpl::map([](const PeerShortInfoFields &fields) {
+	return _fields.value(
+	) | rpl::map([](const PeerShortInfoFields &fields) {
 		return fields.name;
 	}) | rpl::distinct_until_changed();
 }
 
+rpl::producer<TextWithEntities> PeerShortInfoBox::channelValue() const {
+	return _fields.value(
+	) | rpl::map([](const PeerShortInfoFields &fields) {
+		return Ui::Text::Link(fields.channelName, fields.channelLink);
+	}) | rpl::distinct_until_changed();
+}
+
 rpl::producer<TextWithEntities> PeerShortInfoBox::linkValue() const {
-	return _fields.value() | rpl::map([](const PeerShortInfoFields &fields) {
+	return _fields.value(
+	) | rpl::map([](const PeerShortInfoFields &fields) {
 		return Ui::Text::Link(fields.link, fields.link);
 	}) | rpl::distinct_until_changed();
 }
 
 rpl::producer<QString> PeerShortInfoBox::phoneValue() const {
-	return _fields.value() | rpl::map([](const PeerShortInfoFields &fields) {
+	return _fields.value(
+	) | rpl::map([](const PeerShortInfoFields &fields) {
 		return fields.phone;
 	}) | rpl::distinct_until_changed();
 }
 
 rpl::producer<QString> PeerShortInfoBox::usernameValue() const {
-	return _fields.value() | rpl::map([](const PeerShortInfoFields &fields) {
+	return _fields.value(
+	) | rpl::map([](const PeerShortInfoFields &fields) {
 		return fields.username;
 	}) | rpl::distinct_until_changed();
+}
+
+rpl::producer<QString> PeerShortInfoBox::birthdayLabel() const {
+	return Info::Profile::BirthdayLabelText(_fields.value(
+	) | rpl::map([](const PeerShortInfoFields &fields) {
+		return fields.birthday;
+	}) | rpl::distinct_until_changed());
+}
+
+rpl::producer<QString> PeerShortInfoBox::birthdayValue() const {
+	return Info::Profile::BirthdayValueText(_fields.value(
+	) | rpl::map([](const PeerShortInfoFields &fields) {
+		return fields.birthday;
+	}) | rpl::distinct_until_changed());
 }
 
 rpl::producer<TextWithEntities> PeerShortInfoBox::aboutValue() const {

@@ -106,6 +106,10 @@ void ComputeDebugMode() {
 	auto file = QFile(debugModeSettingPath);
 	if (file.exists() && file.open(QIODevice::ReadOnly)) {
 		Logs::SetDebugEnabled(file.read(1) != "0");
+#if defined _DEBUG
+	} else {
+		Logs::SetDebugEnabled(true);
+#endif
 	}
 	if (cDebugMode()) {
 		Logs::SetDebugEnabled(true);
@@ -385,6 +389,7 @@ int Launcher::exec() {
 
 	// Must be started before Sandbox is created.
 	Platform::start();
+	ThirdParty::start();
 	auto result = executeApplication();
 
 	DEBUG_LOG(("Telegram finished, result: %1").arg(result));
@@ -400,6 +405,7 @@ int Launcher::exec() {
 	}
 
 	CrashReports::Finish();
+	ThirdParty::finish();
 	Platform::finish();
 	Logs::finish();
 
@@ -499,7 +505,7 @@ uint64 Launcher::installationTag() const {
 }
 
 void Launcher::processArguments() {
-		enum class KeyFormat {
+	enum class KeyFormat {
 		NoValues,
 		OneValue,
 		AllLeftValues,
@@ -542,9 +548,13 @@ void Launcher::processArguments() {
 		}
 	}
 
+	static const auto RegExp = QRegularExpression("[^a-z0-9\\-_]");
 	gDebugMode = parseResult.contains("-debug");
-	gKeyFile = parseResult.value("-key", {}).join(QString()).toLower();
-	gKeyFile = gKeyFile.replace(QRegularExpression("[^a-z0-9\\-_]"), {});
+	gKeyFile = parseResult
+		.value("-key", {})
+		.join(QString())
+		.toLower()
+		.replace(RegExp, {});
 	gLaunchMode = parseResult.contains("-autostart") ? LaunchModeAutoStart
 		: parseResult.contains("-fixprevious") ? LaunchModeFixPrevious
 		: parseResult.contains("-cleanup") ? LaunchModeCleanup

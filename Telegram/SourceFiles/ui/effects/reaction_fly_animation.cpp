@@ -69,7 +69,8 @@ ReactionFlyAnimation::ReactionFlyAnimation(
 , _repaint(std::move(repaint))
 , _flyFrom(args.flyFrom)
 , _scaleOutDuration(args.scaleOutDuration)
-, _scaleOutTarget(args.scaleOutTarget) {
+, _scaleOutTarget(args.scaleOutTarget)
+, _forceFirstFrame(args.forceFirstFrame) {
 	const auto &list = owner->list(::Data::Reactions::Type::All);
 	auto centerIcon = (DocumentData*)nullptr;
 	auto aroundAnimation = (DocumentData*)nullptr;
@@ -85,6 +86,11 @@ ReactionFlyAnimation::ReactionFlyAnimation(
 		_customSize = esize;
 		_centerSizeMultiplier = _customSize / float64(size);
 		aroundAnimation = owner->chooseGenericAnimation(document);
+	} else if (args.id.paid()) {
+		const auto fake = owner->lookupPaid();
+		centerIcon = fake->centerIcon;
+		aroundAnimation = owner->choosePaidReactionAnimation();
+		_centerSizeMultiplier = 0.5;
 	} else {
 		const auto i = ranges::find(list, args.id, &::Data::Reaction::id);
 		if (i == end(list)/* || !i->centerIcon*/) {
@@ -251,6 +257,7 @@ void ReactionFlyAnimation::paintCenterFrame(
 				target.x() + (target.width() - _customSize) / 2,
 				target.y() + (target.height() - _customSize) / 2),
 			.scaled = scaled,
+			.internal = { .forceFirstFrame = _forceFirstFrame },
 		});
 	}
 }
@@ -278,6 +285,7 @@ void ReactionFlyAnimation::paintMiniCopies(
 		.size = size,
 		.now = now,
 		.scaled = true,
+		.internal = { .forceFirstFrame = _forceFirstFrame },
 	};
 	for (const auto &mini : _miniCopies) {
 		if (progress >= mini.duration) {

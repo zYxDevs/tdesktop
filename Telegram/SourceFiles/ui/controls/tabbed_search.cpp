@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/buttons.h"
 #include "ui/painter.h"
 #include "ui/rect.h"
+#include "ui/ui_utility.h"
 #include "styles/style_chat_helpers.h"
 
 #include <QtWidgets/QApplication>
@@ -181,6 +182,7 @@ void GroupsStrip::paintEvent(QPaintEvent *e) {
 		const auto top = 0;
 		const auto size = SearchWithGroups::IconSizeOverride();
 		if (_chosen == index) {
+			auto hq = PainterHighQualityEnabler(p);
 			p.setPen(Qt::NoPen);
 			p.setBrush(_st.bgActive);
 			p.drawEllipse(
@@ -272,6 +274,11 @@ void GroupsStrip::fireChosenGroup() {
 
 } // namespace
 
+const QString &PremiumGroupFakeEmoticon() {
+	static const auto result = u"*premium"_q;
+	return result;
+}
+
 SearchWithGroups::SearchWithGroups(
 	QWidget *parent,
 	SearchDescriptor descriptor)
@@ -358,7 +365,9 @@ void SearchWithGroups::initGroups() {
 	widget->chosen(
 	) | rpl::start_with_next([=](const GroupsStrip::Chosen &chosen) {
 		_chosenGroup = chosen.group->iconId;
-		_query = chosen.group->emoticons;
+		_query = (chosen.group->type == EmojiGroupType::Premium)
+			? std::vector{ PremiumGroupFakeEmoticon() }
+			: chosen.group->emoticons;
 		_debouncedQuery = chosen.group->emoticons;
 		_debounceTimer.cancel();
 		scrollGroupsToIcon(chosen.iconLeft, chosen.iconRight);

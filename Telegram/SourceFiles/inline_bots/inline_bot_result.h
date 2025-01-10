@@ -16,9 +16,11 @@ class FileLoader;
 class History;
 class UserData;
 struct HistoryMessageMarkupData;
+struct HistoryItemCommonFields;
 
 namespace Data {
 class LocationPoint;
+struct SendError;
 } // namespace Data
 
 namespace InlineBots {
@@ -64,14 +66,12 @@ public:
 
 	void addToHistory(
 		not_null<History*> history,
-		MessageFlags flags,
-		MsgId msgId,
-		PeerId fromId,
-		TimeId date,
-		UserId viaBotId,
-		FullReplyTo replyTo,
-		const QString &postAuthor) const;
-	QString getErrorOnSend(not_null<History*> history) const;
+		HistoryItemCommonFields &&fields) const;
+	[[nodiscard]] not_null<HistoryItem*> makeMessage(
+		not_null<History*> history,
+		HistoryItemCommonFields &&fields) const;
+	[[nodiscard]] Data::SendError getErrorOnSend(
+		not_null<History*> history) const;
 
 	// interface for Layout:: usage
 	std::optional<Data::LocationPoint> getLocationPoint() const;

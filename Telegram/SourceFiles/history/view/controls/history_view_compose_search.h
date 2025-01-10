@@ -25,6 +25,7 @@ public:
 		not_null<Ui::RpWidget*> parent,
 		not_null<Window::SessionController*> window,
 		not_null<History*> history,
+		PeerData *from = nullptr,
 		const QString &query = QString());
 	~ComposeSearch();
 
@@ -32,6 +33,11 @@ public:
 	void setInnerFocus();
 	void setQuery(const QString &query);
 
+	struct Activation {
+		not_null<HistoryItem*> item;
+		QString query;
+	};
+	[[nodiscard]] rpl::producer<Activation> activations() const;
 	[[nodiscard]] rpl::producer<> destroyRequests() const;
 
 	[[nodiscard]] rpl::lifetime &lifetime();

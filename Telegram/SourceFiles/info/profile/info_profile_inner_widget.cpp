@@ -42,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/box_content_divider.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
+#include "ui/ui_utility.h"
 #include "data/data_channel.h"
 #include "data/data_shared_media.h"
 #include "styles/style_info.h"
@@ -52,13 +53,14 @@ namespace Profile {
 
 InnerWidget::InnerWidget(
 	QWidget *parent,
-	not_null<Controller*> controller)
+	not_null<Controller*> controller,
+	Origin origin)
 : RpWidget(parent)
 , _controller(controller)
 , _peer(_controller->key().peer())
 , _migrated(_controller->migrated())
 , _topic(_controller->key().topic())
-, _content(setupContent(this)) {
+, _content(setupContent(this, origin)) {
 	_content->heightValue(
 	) | rpl::start_with_next([this](int height) {
 		if (!_inResize) {
@@ -69,8 +71,8 @@ InnerWidget::InnerWidget(
 }
 
 object_ptr<Ui::RpWidget> InnerWidget::setupContent(
-		not_null<RpWidget*> parent) {
-	auto result = object_ptr<Ui::VerticalLayout>(parent);
+		not_null<RpWidget*> parent,
+		Origin origin) {
 	if (const auto user = _peer->asUser()) {
 		user->session().changes().peerFlagsValue(
 			user,
@@ -85,36 +87,26 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 			}
 		}, lifetime());
 	}
-	_cover = _topic
-		? result->add(object_ptr<Cover>(
-			result,
-			_controller->parentController(),
-			_topic))
-		: result->add(object_ptr<Cover>(
-			result,
-			_controller->parentController(),
-			_peer));
-	_cover->showSection(
-	) | rpl::start_with_next([=](Section section) {
-		_controller->showSection(_topic
-			? std::make_shared<Info::Memento>(_topic, section)
-			: std::make_shared<Info::Memento>(_peer, section));
-	}, _cover->lifetime());
-	_cover->setOnlineCount(rpl::single(0));
-	if (_topic) {
-		if (_topic->creating()) {
-			return result;
-		}
-		result->add(SetupDetails(_controller, parent, _topic));
-	} else {
-		result->add(SetupDetails(_controller, parent, _peer));
+
+	auto result = object_ptr<Ui::VerticalLayout>(parent);
+	_cover = AddCover(result, _controller, _peer, _topic);
+	if (_topic && _topic->creating()) {
+		return result;
 	}
+
+	AddDetails(result, _controller, _peer, _topic, origin);
 	result->add(setupSharedMedia(result.data()));
 	if (_topic) {
 		return result;
 	}
-	if (auto members = SetupChannelMembers(_controller, result.data(), _peer)) {
-		result->add(std::move(members));
+	{
+		auto buttons = SetupChannelMembersAndManage(
+			_controller,
+			result.data(),
+			_peer);
+		if (buttons) {
+			result->add(std::move(buttons));
+		}
 	}
 	if (auto actions = SetupActions(_controller, result.data(), _peer)) {
 		result->add(object_ptr<Ui::BoxContentDivider>(result));
@@ -201,6 +193,19 @@ object_ptr<Ui::RpWidget> InnerWidget::setupSharedMedia(
 			icon,
 			st::infoSharedMediaButtonIconPosition);
 	};
+	const auto addSimilarChannelsButton = [&](
+			not_null<ChannelData*> channel,
+			const style::icon &icon) {
+		auto result = Media::AddSimilarChannelsButton(
+			content,
+			_controller,
+			channel,
+			tracker);
+		object_ptr<Profile::FloatingIcon>(
+			result,
+			icon,
+			st::infoSharedMediaButtonIconPosition);
+	};
 	auto addStoriesButton = [&](
 			not_null<PeerData*> peer,
 			const style::icon &icon) {
@@ -217,11 +222,42 @@ object_ptr<Ui::RpWidget> InnerWidget::setupSharedMedia(
 			icon,
 			st::infoSharedMediaButtonIconPosition);
 	};
+	auto addSavedSublistButton = [&](
+			not_null<PeerData*> peer,
+			const style::icon &icon) {
+		auto result = Media::AddSavedSublistButton(
+			content,
+			_controller,
+			peer,
+			tracker);
+		object_ptr<Profile::FloatingIcon>(
+			result,
+			icon,
+			st::infoSharedMediaButtonIconPosition);
+	};
+	auto addPeerGiftsButton = [&](
+			not_null<UserData*> user,
+			const style::icon &icon) {
+		auto result = Media::AddPeerGiftsButton(
+			content,
+			_controller,
+			user,
+			tracker);
+		object_ptr<Profile::FloatingIcon>(
+			result,
+			icon,
+			st::infoSharedMediaButtonIconPosition);
+	};
 
 	const auto user = _peer->asUser();
-	addStoriesButton(_peer, st::infoIconMediaStories);
-	if (user && !GetEnhancedBool("hide_stories")) {
-		addStoriesButton(_peer, st::infoIconMediaStories);
+	if (!_topic) {
+		if (user && !GetEnhancedBool("hide_stories")) {
+			addStoriesButton(_peer, st::infoIconMediaStories);
+		}
+		if (const auto user = _peer->asUser()) {
+			addPeerGiftsButton(user, st::infoIconMediaGifts);
+		}
+		addSavedSublistButton(_peer, st::infoIconMediaSaved);
 	}
 	addMediaButton(MediaType::Photo, st::infoIconMediaPhoto);
 	addMediaButton(MediaType::Video, st::infoIconMediaVideo);
@@ -232,6 +268,8 @@ object_ptr<Ui::RpWidget> InnerWidget::setupSharedMedia(
 	addMediaButton(MediaType::GIF, st::infoIconMediaGif);
 	if (user) {
 		addCommonGroupsButton(user, st::infoIconMediaGroup);
+	} else if (const auto channel = _peer->asChannel()) {
+		addSimilarChannelsButton(channel, st::infoIconMediaChannel);
 	}
 
 	auto result = object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(

@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/object_ptr.h"
+#include "base/weak_ptr.h"
 
 namespace Ui {
 class Show;
@@ -39,7 +40,7 @@ struct PaymentMethodDetails;
 struct PaymentMethodAdditional;
 struct NativeMethodDetails;
 
-class Panel final {
+class Panel final : public base::has_weak_ptr {
 public:
 	explicit Panel(not_null<PanelDelegate*> delegate);
 	~Panel();
@@ -114,11 +115,13 @@ private:
 	[[nodiscard]] bool progressWithBackground() const;
 	[[nodiscard]] QRect progressRect() const;
 	void setupProgressGeometry();
+	void updateFooterHeight();
 
 	const not_null<PanelDelegate*> _delegate;
 	std::unique_ptr<SeparatePanel> _widget;
 	std::unique_ptr<WebviewWithLifetime> _webview;
 	std::unique_ptr<RpWidget> _webviewBottom;
+	rpl::variable<int> _footerHeight;
 	std::unique_ptr<Progress> _progress;
 	QPointer<Checkbox> _saveWebviewInformation;
 	QPointer<FormSummary> _weakFormSummary;

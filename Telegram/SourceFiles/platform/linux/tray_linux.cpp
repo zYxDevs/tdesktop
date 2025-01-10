@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/invoke_queued.h"
 #include "base/qt_signal_producer.h"
+#include "base/platform/linux/base_linux_dbus_utilities.h"
 #include "core/application.h"
 #include "core/sandbox.h"
 #include "platform/platform_specific.h"
@@ -21,7 +22,22 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QMenu>
 #include <QtWidgets/QSystemTrayIcon>
 
+#include <gio/gio.hpp>
+
 namespace Platform {
+namespace {
+
+using namespace gi::repository;
+
+[[nodiscard]] QString PanelIconName(int counter, bool muted) {
+	return (counter > 0)
+		? (muted
+			? u"telegram-mute-panel"_q
+			: u"telegram-attention-panel"_q)
+		: u"telegram-panel"_q;
+}
+
+} // namespace
 
 class IconGraphic final {
 public:
@@ -35,30 +51,28 @@ public:
 		bool muted) const;
 	[[nodiscard]] QIcon systemIcon(
 		const QString &iconThemeName,
+		bool monochrome,
 		int counter,
 		bool muted) const;
 	[[nodiscard]] QIcon trayIcon(
 		const QIcon &systemIcon,
 		const QString &iconThemeName,
+		bool monochrome,
 		int counter,
 		bool muted);
 
 private:
-	[[nodiscard]] QString panelIconName(int counter, bool muted) const;
 	[[nodiscard]] int counterSlice(int counter) const;
 	void updateIconRegenerationNeeded(
 		const QIcon &icon,
 		const QIcon &systemIcon,
 		const QString &iconThemeName,
+		bool monochrome,
 		int counter,
 		bool muted);
 	[[nodiscard]] QSize dprSize(const QImage &image) const;
 
-	const QString _panelTrayIconName;
-	const QString _mutePanelTrayIconName;
-	const QString _attentionPanelTrayIconName;
-
-	const int _iconSizes[5];
+	const int _iconSizes[7];
 
 	bool _muted = true;
 	int32 _count = 0;
@@ -66,42 +80,37 @@ private:
 	QIcon _trayIcon;
 	QIcon _systemIcon;
 	QString _themeName;
+	bool _monochrome;
 
 };
 
 IconGraphic::IconGraphic()
-: _panelTrayIconName("telegram-panel")
-, _mutePanelTrayIconName("telegram-mute-panel")
-, _attentionPanelTrayIconName("telegram-attention-panel")
-, _iconSizes{ 16, 22, 24, 32, 48 } {
+: _iconSizes{ 16, 22, 32, 48, 64, 128, 256 } {
 }
 
 IconGraphic::~IconGraphic() = default;
 
-QString IconGraphic::panelIconName(int counter, bool muted) const {
-	return (counter > 0)
-		? (muted
-			? _mutePanelTrayIconName
-			: _attentionPanelTrayIconName)
-		: _panelTrayIconName;
-}
-
 QIcon IconGraphic::systemIcon(
 		const QString &iconThemeName,
+		bool monochrome,
 		int counter,
 		bool muted) const {
 	if (iconThemeName == _themeName
+		&& monochrome == _monochrome
 		&& (counter > 0) == (_count > 0)
 		&& muted == _muted) {
 		return _systemIcon;
 	}
 
 	const auto candidates = {
-		panelIconName(counter, muted),
+		monochrome ? PanelIconName(counter, muted) : QString(),
 		base::IconName(),
 	};
 
 	for (const auto &candidate : candidates) {
+		if (candidate.isEmpty()) {
+			continue;
+		}
 		const auto icon = QIcon::fromTheme(candidate);
 		if (icon.name() == candidate) {
 			return icon;
@@ -126,19 +135,22 @@ bool IconGraphic::isRefreshNeeded(
 	return _trayIcon.isNull()
 		|| iconThemeName != _themeName
 		|| systemIcon.name() != _systemIcon.name()
-		|| muted != _muted
-		|| counterSlice(counter) != _count;
+		|| (systemIcon.name() != PanelIconName(counter, muted)
+			? muted != _muted || counterSlice(counter) != _count
+			: false);
 }
 
 void IconGraphic::updateIconRegenerationNeeded(
 		const QIcon &icon,
 		const QIcon &systemIcon,
 		const QString &iconThemeName,
+		bool monochrome,
 		int counter,
 		bool muted) {
 	_trayIcon = icon;
 	_systemIcon = systemIcon;
 	_themeName = iconThemeName;
+	_monochrome = monochrome;
 	_count = counterSlice(counter);
 	_muted = muted;
 }
@@ -150,18 +162,19 @@ QSize IconGraphic::dprSize(const QImage &image) const {
 QIcon IconGraphic::trayIcon(
 		const QIcon &systemIcon,
 		const QString &iconThemeName,
+		bool monochrome,
 		int counter,
 		bool muted) {
 	if (!isRefreshNeeded(systemIcon, iconThemeName, counter, muted)) {
 		return _trayIcon;
 	}
 
-
-	if (systemIcon.name() == panelIconName(counter, muted)) {
+	if (systemIcon.name() == PanelIconName(counter, muted)) {
 		updateIconRegenerationNeeded(
 			systemIcon,
 			systemIcon,
 			iconThemeName,
+			monochrome,
 			counter,
 			muted);
 
@@ -214,52 +227,20 @@ QIcon IconGraphic::trayIcon(
 			}
 		}
 
-		auto iconImage = currentImageBack;
-
-		if (counter > 0) {
-			const auto &bg = muted
-				? st::trayCounterBgMute
-				: st::trayCounterBg;
-			const auto &fg = st::trayCounterFg;
-			if (iconSize >= 22) {
-				const auto imageSize = dprSize(iconImage);
-				const auto layerSize = (iconSize >= 48)
-					? 32
-					: (iconSize >= 36)
-					? 24
-					: (iconSize >= 32)
-					? 20
-					: 16;
-				const auto layer = Window::GenerateCounterLayer({
-					.size = layerSize,
-					.devicePixelRatio = iconImage.devicePixelRatio(),
-					.count = counter,
-					.bg = bg,
-					.fg = fg,
-				});
-
-				QPainter p(&iconImage);
-				p.drawImage(
-					imageSize.width() - layer.width() - 1,
-					imageSize.height() - layer.height() - 1,
-					layer);
-			} else {
-				iconImage = Window::WithSmallCounter(std::move(iconImage), {
-					.size = 16,
-					.count = counter,
-					.bg = bg,
-					.fg = fg,
-				});
-			}
-		}
-
-		result.addPixmap(Ui::PixmapFromImage(std::move(iconImage)));
+		result.addPixmap(Ui::PixmapFromImage(counter > 0
+			? Window::WithSmallCounter(std::move(currentImageBack), {
+				.size = iconSize,
+				.count = counter,
+				.bg = muted ? st::trayCounterBgMute : st::trayCounterBg,
+				.fg = st::trayCounterFg,
+			}) : std::move(currentImageBack)));
 	}
 
 	updateIconRegenerationNeeded(
 		result,
 		systemIcon,
 		iconThemeName,
+		monochrome,
 		counter,
 		muted);
 
@@ -306,11 +287,29 @@ rpl::producer<> TrayEventFilter::contextMenuFilters() const {
 }
 
 Tray::Tray() {
-	LOG(("System tray available: %1").arg(Logs::b(TrayIconSupported())));
+	auto connection = Gio::bus_get_sync(Gio::BusType::SESSION_, nullptr);
+	if (connection) {
+		_sniWatcher = std::make_unique<base::Platform::DBus::ServiceWatcher>(
+			connection.gobj_(),
+			"org.kde.StatusNotifierWatcher",
+			[=](
+					const std::string &service,
+					const std::string &oldOwner,
+					const std::string &newOwner) {
+				Core::Sandbox::Instance().customEnterFromEventLoop([&] {
+					if (hasIcon()) {
+						destroyIcon();
+						createIcon();
+					}
+				});
+			});
+	}
 }
 
 void Tray::createIcon() {
 	if (!_icon) {
+		LOG(("System tray available: %1").arg(Logs::b(TrayIconSupported())));
+
 		if (!_iconGraphic) {
 			_iconGraphic = std::make_unique<IconGraphic>();
 		}
@@ -323,6 +322,7 @@ void Tray::createIcon() {
 		};
 
 		const auto iconThemeName = QIcon::themeName();
+		const auto monochrome = Core::App().settings().trayIconMonochrome();
 		const auto counter = Core::App().unreadBadge();
 		const auto muted = Core::App().unreadBadgeMuted();
 
@@ -330,9 +330,11 @@ void Tray::createIcon() {
 		_icon->setIcon(_iconGraphic->trayIcon(
 			_iconGraphic->systemIcon(
 				iconThemeName,
+				monochrome,
 				counter,
 				muted),
 			iconThemeName,
+			monochrome,
 			counter,
 			muted));
 		_icon->setToolTip(AppName.utf16());
@@ -375,9 +377,11 @@ void Tray::updateIcon() {
 	}
 	const auto counter = Core::App().unreadBadge();
 	const auto muted = Core::App().unreadBadgeMuted();
+	const auto monochrome = Core::App().settings().trayIconMonochrome();
 	const auto iconThemeName = QIcon::themeName();
 	const auto systemIcon = _iconGraphic->systemIcon(
 		iconThemeName,
+		monochrome,
 		counter,
 		muted);
 
@@ -389,6 +393,7 @@ void Tray::updateIcon() {
 		_icon->setIcon(_iconGraphic->trayIcon(
 			systemIcon,
 			iconThemeName,
+			monochrome,
 			counter,
 			muted));
 	}
@@ -468,5 +473,12 @@ rpl::lifetime &Tray::lifetime() {
 }
 
 Tray::~Tray() = default;
+
+bool HasMonochromeSetting() {
+	return QIcon::hasThemeIcon(
+		PanelIconName(
+			Core::App().unreadBadge(),
+			Core::App().unreadBadgeMuted()));
+}
 
 } // namespace Platform

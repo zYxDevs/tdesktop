@@ -321,9 +321,6 @@ void Viewport::RendererGL::init(
 	_frameBuffer->bind();
 	_frameBuffer->allocate(kValues * sizeof(GLfloat));
 	_downscaleProgram.yuv420.emplace();
-	const auto downscaleVertexSource = VertexShader({
-		VertexPassTextureCoord(),
-	});
 	_downscaleVertexShader = LinkProgram(
 		&*_downscaleProgram.yuv420,
 		VertexShader({
@@ -463,7 +460,8 @@ void Viewport::RendererGL::validateUserpicFrame(
 		return;
 	}
 	const auto size = tile->trackOrUserpicSize();
-	tileData.userpicFrame = tile->row()->peer()->generateUserpicImage(
+	tileData.userpicFrame = PeerData::GenerateUserpicImage(
+		tile->row()->peer(),
 		tile->row()->ensureUserpicView(),
 		size.width(),
 		0);
@@ -534,6 +532,12 @@ void Viewport::RendererGL::paintTile(
 		{ { 1.f, 0.f } },
 		{ { 0.f, 0.f } },
 	} };
+	if (tile->mirror()) {
+		std::swap(toBlurTexCoords[0], toBlurTexCoords[1]);
+		std::swap(toBlurTexCoords[2], toBlurTexCoords[3]);
+		std::swap(texCoords[0], texCoords[1]);
+		std::swap(texCoords[2], texCoords[3]);
+	}
 	if (const auto shift = (frameRotation / 90); shift > 0) {
 		std::rotate(
 			toBlurTexCoords.begin(),
@@ -582,11 +586,12 @@ void Viewport::RendererGL::paintTile(
 		_paused);
 	const auto pauseRect = transformRect(pauseIcon.geometry);
 
+	const auto factor = style::DevicePixelRatio();
 	const auto pausedPosition = QPoint(
-		x + (width - (_pausedTextRect.width() / cIntRetinaFactor())) / 2,
+		x + (width - (_pausedTextRect.width() / factor)) / 2,
 		pauseTextTop);
 	const auto pausedText = _names.texturedRect(
-		QRect(pausedPosition, _pausedTextRect.size() / cIntRetinaFactor()),
+		QRect(pausedPosition, _pausedTextRect.size() / factor),
 		_pausedTextRect);
 	const auto pausedRect = transformRect(pausedText.geometry);
 
@@ -624,7 +629,7 @@ void Viewport::RendererGL::paintTile(
 		x + st.namePosition.x(),
 		nameTop + nameShift);
 	const auto name = _names.texturedRect(
-		QRect(namePosition, tileData.nameRect.size() / cIntRetinaFactor()),
+		QRect(namePosition, tileData.nameRect.size() / factor),
 		tileData.nameRect,
 		geometry);
 	const auto nameRect = transformRect(name.geometry);
@@ -779,6 +784,7 @@ void Viewport::RendererGL::paintTile(
 		: &*_frameProgram.yuv420;
 	const auto uniformViewport = QSizeF(_viewport) * _factor;
 
+	program->bind();
 	program->setUniformValue("viewport", uniformViewport);
 	program->setUniformValue(
 		"frameBg",
@@ -1074,6 +1080,7 @@ void Viewport::RendererGL::drawDownscalePass(
 		? &*_downscaleProgram.argb32
 		: &*_downscaleProgram.yuv420;
 
+	program->bind();
 	FillTexturedRectangle(f, program);
 }
 
@@ -1191,7 +1198,7 @@ void Viewport::RendererGL::validateDatas() {
 	const auto &tiles = _owner->_tiles;
 	const auto &st = st::groupCallVideoTile;
 	const auto count = int(tiles.size());
-	const auto factor = cIntRetinaFactor();
+	const auto factor = style::DevicePixelRatio();
 	const auto nameHeight = st::semiboldFont->height * factor;
 	const auto pausedText = tr::lng_group_call_video_paused(tr::now);
 	const auto pausedBottom = nameHeight;

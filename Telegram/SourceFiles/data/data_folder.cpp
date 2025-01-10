@@ -70,15 +70,15 @@ constexpr auto kShowChatNamesCount = 8;
 	);
 	const auto wrapName = [](not_null<History*> history) {
 		const auto name = history->peer->name();
-		return TextWithEntities{
+		return st::wrap_rtl(TextWithEntities{
 			.text = name,
 			.entities = (history->chatListBadgesState().unread
 				? EntitiesInText{
 					{ EntityType::Semibold, 0, int(name.size()), QString() },
-					{ EntityType::PlainLink, 0, int(name.size()), QString() },
+					{ EntityType::Colorized, 0, int(name.size()), QString() },
 				}
 				: EntitiesInText{}),
-		};
+		});
 	};
 	const auto shown = int(peers.size());
 	const auto accumulated = [&] {
@@ -341,12 +341,6 @@ int Folder::storiesCount() const {
 
 int Folder::storiesUnreadCount() const {
 	return _storiesUnreadCount;
-}
-
-void Folder::requestChatListMessage() {
-	if (!chatListMessageKnown()) {
-		owner().histories().requestDialogEntry(this);
-	}
 }
 
 TimeId Folder::adjustedChatListTimeId() const {

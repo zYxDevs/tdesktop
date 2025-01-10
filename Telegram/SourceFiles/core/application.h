@@ -7,9 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "base/timer.h"
 #include "mtproto/mtproto_auth_key.h"
 #include "mtproto/mtproto_proxy_data.h"
-#include "base/timer.h"
+#include "window/window_separate_id.h"
 
 class History;
 
@@ -29,11 +30,9 @@ namespace Window {
 class Controller;
 } // namespace Window
 
-namespace Window {
-namespace Notifications {
+namespace Window::Notifications {
 class System;
-} // namespace Notifications
-} // namespace Window
+} // namespace Window::Notifications
 
 namespace ChatHelpers {
 class EmojiKeywords;
@@ -44,6 +43,11 @@ class Domain;
 class Account;
 class Session;
 } // namespace Main
+
+namespace Iv {
+class Instance;
+class DelegateImpl;
+} // namespace Iv
 
 namespace Ui {
 namespace Animations {
@@ -101,6 +105,10 @@ namespace Calls {
 class Instance;
 } // namespace Calls
 
+namespace Webrtc {
+class Environment;
+} // namespace Webrtc
+
 namespace Core {
 
 struct LocalUrlHandler;
@@ -117,6 +125,8 @@ enum class QuitReason {
 	Default,
 	QtQuitEvent,
 };
+
+extern const char kOptionSkipUrlSchemeRegister[];
 
 class Application final : public QObject {
 public:
@@ -157,21 +167,21 @@ public:
 	bool hasActiveWindow(not_null<Main::Session*> session) const;
 	[[nodiscard]] bool savingPositionFor(
 		not_null<Window::Controller*> window) const;
+	[[nodiscard]] Window::Controller *findWindow(
+		not_null<QWidget*> widget) const;
 	[[nodiscard]] Window::Controller *activeWindow() const;
 	[[nodiscard]] Window::Controller *activePrimaryWindow() const;
-	[[nodiscard]] Window::Controller *separateWindowForAccount(
-		not_null<Main::Account*> account) const;
-	[[nodiscard]] Window::Controller *separateWindowForPeer(
-		not_null<PeerData*> peer) const;
-	Window::Controller *ensureSeparateWindowForPeer(
-		not_null<PeerData*> peer,
-		MsgId showAtMsgId);
-	Window::Controller *ensureSeparateWindowForAccount(
-		not_null<Main::Account*> account);
+	[[nodiscard]] Window::Controller *separateWindowFor(
+		Window::SeparateId id) const;
+	Window::Controller *ensureSeparateWindowFor(
+		Window::SeparateId id,
+		MsgId showAtMsgId = 0);
 	[[nodiscard]] Window::Controller *windowFor( // Doesn't auto-switch.
+		Window::SeparateId id) const;
+	[[nodiscard]] Window::Controller *windowForShowingHistory(
 		not_null<PeerData*> peer) const;
-	[[nodiscard]] Window::Controller *windowFor( // Doesn't auto-switch.
-		not_null<Main::Account*> account) const;
+	[[nodiscard]] Window::Controller *windowForShowingForum(
+		not_null<Data::Forum*> forum) const;
 	[[nodiscard]] bool closeNonLastAsync(
 		not_null<Window::Controller*> window);
 	void closeWindow(not_null<Window::Controller*> window);
@@ -184,7 +194,7 @@ public:
 	void checkSystemDarkMode();
 	[[nodiscard]] bool isActiveForTrayMenu() const;
 	void closeChatFromWindows(not_null<PeerData*> peer);
-	void checkWindowAccount(not_null<Window::Controller*> window);
+	void checkWindowId(not_null<Window::Controller*> window);
 	void activate();
 
 	// Media view interface.
@@ -199,7 +209,7 @@ public:
 	void saveSettingsDelayed(crl::time delay = kDefaultSaveDelay);
 	void saveSettings();
 
-	[[nodiscard]] bool canReadDefaultDownloadPath(bool always = false) const;
+	[[nodiscard]] bool canReadDefaultDownloadPath() const;
 	[[nodiscard]] bool canSaveFileWithoutAskingForPath() const;
 
 	// Fallback config and proxy.
@@ -238,6 +248,9 @@ public:
 	[[nodiscard]] Media::Audio::Instance &audio() {
 		return *_audio;
 	}
+	[[nodiscard]] Webrtc::Environment &mediaDevices() {
+		return *_mediaDevices;
+	}
 
 	// Langpack and emoji keywords.
 	[[nodiscard]] Lang::Instance &langpack() {
@@ -271,6 +284,11 @@ public:
 	// Calls.
 	Calls::Instance &calls() const {
 		return *_calls;
+	}
+
+	// Iv.
+	Iv::Instance &iv() const {
+		return *_iv;
 	}
 
 	void logout(Main::Account *account = nullptr);
@@ -333,6 +351,7 @@ private:
 	friend bool IsAppLaunched();
 	friend Application &App();
 
+	void autoRegisterUrlScheme();
 	void clearEmojiSourceImages();
 	[[nodiscard]] auto prepareEmojiSourceImages()
 		-> std::shared_ptr<Ui::Emoji::UniversalImages>;
@@ -359,6 +378,7 @@ private:
 
 	void showOpenGLCrashNotification();
 	void clearPasscodeLock();
+	void closeAdditionalWindows();
 
 	bool openCustomUrl(
 		const QString &protocol,
@@ -383,6 +403,7 @@ private:
 	const std::unique_ptr<Private> _private;
 	const std::unique_ptr<Platform::Integration> _platformIntegration;
 	const std::unique_ptr<base::BatterySaving> _batterySaving;
+	const std::unique_ptr<Webrtc::Environment> _mediaDevices;
 
 	const std::unique_ptr<Storage::Databases> _databases;
 	const std::unique_ptr<Ui::Animations::Manager> _animationsManager;
@@ -401,13 +422,11 @@ private:
 	const std::unique_ptr<Main::Domain> _domain;
 	const std::unique_ptr<Export::Manager> _exportManager;
 	const std::unique_ptr<Calls::Instance> _calls;
+	const std::unique_ptr<Iv::Instance> _iv;
 	base::flat_map<
-		Main::Account*,
-		std::unique_ptr<Window::Controller>> _primaryWindows;
+		Window::SeparateId,
+		std::unique_ptr<Window::Controller>> _windows;
 	base::flat_set<not_null<Window::Controller*>> _closingAsyncWindows;
-	base::flat_map<
-		not_null<History*>,
-		std::unique_ptr<Window::Controller>> _secondaryWindows;
 	std::vector<not_null<Window::Controller*>> _windowStack;
 	Window::Controller *_lastActiveWindow = nullptr;
 	Window::Controller *_lastActivePrimaryWindow = nullptr;

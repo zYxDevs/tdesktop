@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_photo_media.h"
 #include "data/data_document_media.h"
 #include "history/history.h"
+#include "history/history_item.h"
 #include "history/history_item_reply_markup.h"
 #include "inline_bots/inline_bot_layout_item.h"
 #include "inline_bots/inline_bot_send_data.h"
@@ -27,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image_location_factory.h"
 #include "mainwidget.h"
 #include "main/main_session.h"
+#include "styles/style_chat_helpers.h"
 
 namespace InlineBots {
 namespace {
@@ -262,6 +264,12 @@ std::unique_ptr<Result> Result::Create(
 		result->sendData = std::make_unique<internal::SendInvoice>(
 			session,
 			media);
+	}, [&](const MTPDbotInlineMessageMediaWebPage &data) {
+		result->sendData = std::make_unique<internal::SendText>(
+			session,
+			qs(data.vmessage()),
+			Api::EntitiesFromMTP(session, data.ventities().value_or_empty()),
+			false);
 	});
 
 	if (!result->sendData || !result->sendData->isValid()) {
@@ -276,7 +284,7 @@ std::unique_ptr<Result> Result::Create(
 	});
 
 	if (const auto point = result->getLocationPoint()) {
-		const auto scale = 1 + (cScale() * cIntRetinaFactor()) / 200;
+		const auto scale = 1 + (cScale() * style::DevicePixelRatio()) / 200;
 		const auto zoom = 15 + (scale - 1);
 		const auto w = st::inlineThumbSize / scale;
 		const auto h = st::inlineThumbSize / scale;
@@ -369,39 +377,26 @@ bool Result::hasThumbDisplay() const {
 
 void Result::addToHistory(
 		not_null<History*> history,
-		MessageFlags flags,
-		MsgId msgId,
-		PeerId fromId,
-		TimeId date,
-		UserId viaBotId,
-		FullReplyTo replyTo,
-		const QString &postAuthor) const {
-	flags |= MessageFlag::FromInlineBot;
-
-	auto markup = _replyMarkup ? *_replyMarkup : HistoryMessageMarkupData();
-	if (!markup.isNull()) {
-		flags |= MessageFlag::HasReplyMarkup;
-	}
-	sendData->addToHistory(
-		this,
-		history,
-		flags,
-		msgId,
-		fromId,
-		date,
-		viaBotId,
-		replyTo,
-		postAuthor,
-		std::move(markup));
+		HistoryItemCommonFields &&fields) const {
+	history->addNewLocalMessage(makeMessage(history, std::move(fields)));
 }
 
-QString Result::getErrorOnSend(not_null<History*> history) const {
-	const auto specific = sendData->getErrorOnSend(this, history);
-	return !specific.isEmpty()
-		? specific
-		: Data::RestrictionError(
-			history->peer,
-			ChatRestriction::SendInline).value_or(QString());
+not_null<HistoryItem*> Result::makeMessage(
+		not_null<History*> history,
+		HistoryItemCommonFields &&fields) const {
+	fields.flags |= MessageFlag::FromInlineBot | MessageFlag::Local;
+	if (_replyMarkup) {
+		fields.markup = *_replyMarkup;
+		if (!fields.markup.isNull()) {
+			fields.flags |= MessageFlag::HasReplyMarkup;
+		}
+	}
+	return sendData->makeMessage(this, history, std::move(fields));
+}
+
+Data::SendError Result::getErrorOnSend(not_null<History*> history) const {
+	return sendData->getErrorOnSend(this, history).value_or(
+		Data::RestrictionError(history->peer, ChatRestriction::SendInline));
 }
 
 std::optional<Data::LocationPoint> Result::getLocationPoint() const {

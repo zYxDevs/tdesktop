@@ -233,9 +233,10 @@ QString SpecialScanCredentialsKey(FileType type) {
 
 QString ValidateUrl(const QString &url) {
 	const auto result = qthelp::validate_url(url);
-	return result.startsWith("tg://", Qt::CaseInsensitive)
-		? QString()
-		: result;
+	return (result.startsWith("http://", Qt::CaseInsensitive)
+		|| result.startsWith("https://", Qt::CaseInsensitive))
+		? result
+		: QString();
 }
 
 auto ParseConfig(const QByteArray &json) {
@@ -1581,14 +1582,10 @@ void FormController::uploadEncryptedFile(
 		&session(),
 		std::make_unique<UploadScanData>(std::move(data)));
 
-	auto prepared = std::make_shared<FileLoadResult>(
-		TaskId(),
-		file.uploadData->fileId,
-		FileLoadTo(PeerId(), Api::SendOptions(), FullReplyTo(), MsgId()),
-		TextWithTags(),
-		false,
-		std::shared_ptr<SendingAlbum>(nullptr));
-	prepared->type = SendMediaType::Secure;
+	auto prepared = MakePreparedFile({
+		.id = file.uploadData->fileId,
+		.type = SendMediaType::Secure,
+	});
 	prepared->content = QByteArray::fromRawData(
 		reinterpret_cast<char*>(file.uploadData->bytes.data()),
 		file.uploadData->bytes.size());
@@ -1791,7 +1788,7 @@ void FormController::loadFile(File &file) {
 		return;
 	}
 	file.downloadStatus.set(LoadStatus::Status::InProgress, 0);
-	const auto [j, ok] = _fileLoaders.emplace(
+	const auto &[j, ok] = _fileLoaders.emplace(
 		key,
 		std::make_unique<mtpFileLoader>(
 			&_controller->session(),
@@ -1823,7 +1820,7 @@ void FormController::loadFile(File &file) {
 }
 
 void FormController::fileLoadDone(FileKey key, const QByteArray &bytes) {
-	if (const auto [value, file] = findFile(key); file != nullptr) {
+	if (const auto &[value, file] = findFile(key); file != nullptr) {
 		const auto decrypted = DecryptData(
 			bytes::make_span(bytes),
 			file->hash,
@@ -1843,7 +1840,7 @@ void FormController::fileLoadDone(FileKey key, const QByteArray &bytes) {
 }
 
 void FormController::fileLoadProgress(FileKey key, int offset) {
-	if (const auto [value, file] = findFile(key); file != nullptr) {
+	if (const auto &[value, file] = findFile(key); file != nullptr) {
 		file->downloadStatus.set(LoadStatus::Status::InProgress, offset);
 		if (const auto fileInEdit = findEditFile(key)) {
 			fileInEdit->fields.downloadStatus = file->downloadStatus;
@@ -1853,7 +1850,7 @@ void FormController::fileLoadProgress(FileKey key, int offset) {
 }
 
 void FormController::fileLoadFail(FileKey key) {
-	if (const auto [value, file] = findFile(key); file != nullptr) {
+	if (const auto &[value, file] = findFile(key); file != nullptr) {
 		file->downloadStatus.set(LoadStatus::Status::Failed);
 		if (const auto fileInEdit = findEditFile(key)) {
 			fileInEdit->fields.downloadStatus = file->downloadStatus;
@@ -2221,6 +2218,10 @@ void FormController::startPhoneVerification(not_null<Value*> value) {
 				bad("FirebaseSms");
 			}, [&](const MTPDauth_sentCodeTypeEmailCode &) {
 				bad("EmailCode");
+			}, [&](const MTPDauth_sentCodeTypeSmsWord &) {
+				bad("SmsWord");
+			}, [&](const MTPDauth_sentCodeTypeSmsPhrase &) {
+				bad("SmsPhrase");
 			}, [&](const MTPDauth_sentCodeTypeSetUpEmailRequired &) {
 				bad("SetUpEmailRequired");
 			});
@@ -2261,8 +2262,10 @@ void FormController::requestPhoneCall(not_null<Value*> value) {
 	value->verification.call->setStatus(
 		{ Ui::SentCodeCall::State::Calling, 0 });
 	_api.request(MTPauth_ResendCode(
+		MTP_flags(0),
 		MTP_string(getPhoneFromValue(value)),
-		MTP_string(value->verification.phoneCodeHash)
+		MTP_string(value->verification.phoneCodeHash),
+		MTPstring() // reason
 	)).done([=] {
 		value->verification.call->callDone();
 	}).send();
@@ -2591,7 +2594,7 @@ bool FormController::parseForm(const MTPaccount_AuthorizationForm &result) {
 		const auto row = CollectRequestedRow(required);
 		for (const auto &requested : row.values) {
 			const auto type = requested.type;
-			const auto [i, ok] = _form.values.emplace(type, Value(type));
+			const auto &[i, ok] = _form.values.emplace(type, Value(type));
 			auto &value = i->second;
 			value.translationRequired = requested.translationRequired;
 			value.selfieRequired = requested.selfieRequired;
@@ -2690,8 +2693,8 @@ bool FormController::applyPassword(const MTPDaccount_password &result) {
 	settings.notEmptyPassport = result.is_has_secure_values();
 	settings.request = Core::ParseCloudPasswordCheckRequest(result);
 	settings.unknownAlgo = result.vcurrent_algo() && !settings.request;
-	settings.unconfirmedPattern =
-		qs(result.vemail_unconfirmed_pattern().value_or_empty());
+	settings.unconfirmedPattern = qs(
+		result.vemail_unconfirmed_pattern().value_or_empty());
 	settings.newAlgo = Core::ValidateNewCloudPasswordAlgo(
 		Core::ParseCloudPasswordAlgo(result.vnew_algo()));
 	settings.newSecureAlgo = Core::ValidateNewSecureSecretAlgo(

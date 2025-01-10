@@ -1,3 +1,763 @@
+5.10.3 (09.01.25)
+
+- Fix a crash in legacy group opening.
+
+5.10.2 (07.01.25)
+
+- Fix double verification badge in profiles.
+
+5.10.1 (06.01.25)
+
+- Show "Boost group the send messages" information.
+- Fix several gifts bugs and glitches.
+- Fix several crashes.
+
+5.10 (02.01.25)
+
+- Collectible Gifts.
+- Reactions for Service Messages.
+- Verification from Third Parties.
+- Custom Emoji in Folder Names.
+
+5.9.2 beta (24.12.24)
+
+- Fix some jump-to-message highlightings.
+- Fix some long round video messages sending.
+- Fix possible crash in global photos / videos.
+- Fix streaming starting for some large video files.
+- Fix possible drop of top peers / recent chats cache.
+- Fix possible crashes in audio on macOS (rollback OpenAL).
+
+5.9.1 beta (18.12.24)
+
+- Add global media overview tabs in chats search.
+- Add main menu "My Profile" with my stories and gifts access.
+- Highlight some of search query on result message open.
+- Fix highlighting quotes from bottom parts of long messages.
+- Allow forward and reply bars together.
+- Make gift price categories scrollable.
+- Auto-send deep-link /start in existing bot chats.
+
+5.9 (04.12.24)
+
+- Affiliate programs for bots.
+- Add option to show folder tags in chats list.
+
+5.8.5 beta (29.11.24)
+
+- Fix pinned chats in folders.
+- Fix emoji in folder tags.
+- Fix several crashes.
+
+5.8.4 beta (28.11.24)
+
+- Add option to show folder tags in chats list.
+- Count group with topics as one chat in folder unread counter.
+
+5.8.3 (23.11.24)
+
+- Ctrl+Click on Reply in groups to reply in another chat.
+- Fix freeze on forward messages box opening.
+- Improve phrases in bot subscriptions.
+- Several bugfixes.
+
+5.8.2 (19.11.24)
+
+- Improve bottom label color in mini apps.
+- Fix some fullscreen issues in mini apps.
+- Fix miss-order of archived chats in forward box.
+- Fix file dialog for Windows on ARM.
+- Fix emoji status pack view from profile regression.
+
+5.8.1 (17.11.24)
+
+- Fix several possible crashes.
+
+5.8 (17.11.24)
+
+- Updates in Mini Apps platform.
+- Chat folders in forward and share boxes.
+- Horizontal strip mode for chat folders.
+
+5.7.4 beta (15.11.24)
+
+- Enable auto night mode by default.
+- Use muted chats folder badge in horizontal strip.
+- Fix custom userpic context menu in comments and topics.
+- Fix scrolling of chats folders together with the list.
+- Fix chats folders list disappearing in some cases.
+- Fix topic groups in share box with chats folders.
+- Fix bot commands list in some groups.
+- Fix crash in channel short info box display.
+- Fix crash in bot monetization section opening.
+- Fix crash in bot sponsored messages destruction.
+
+5.7.3 beta (13.11.24)
+
+- Option to show folders above the chats list.
+- Folders on top of recipients list box.
+
+5.7.2 (05.11.24)
+
+- Fix recompressed video playback cutoff.
+- Fix video message recroding on macOS.
+
+5.7.1 (01.11.24)
+
+- Fix occasional redundant newlines before message timestamp.
+- Remove playback speed change on settings button click.
+- Fix video playback settings button on hidpi screens.
+- Fix return from Picture-in-Picture to media viewer.
+- Fix video quality auto-switching in Picture-in-Picture.
+- Add message link to channel stars transaction information.
+- Fix GIF playback in media viewer.
+- Fix several possible crashes.
+
+5.7 (31.10.24)
+
+- Sending video messages.
+- New video quality selection in channels.
+- Adding media to sent text messages via Edit.
+- Ads in bots with revenue sharing with bot developers.
+- Chat-specific hashtags.
+
+5.6.4 beta (24.10.24)
+
+- Add recording of video messages in case a camera is available.
+- Add "Respect the Focus settings" for custom notifications on Windows.
+
+5.6.3 (15.10.24)
+
+- Add ability to change page scale in Instant View pages.
+- Fix unnecessary timestamp jump to a new line.
+- Fix secondary button positioning in miniapps.
+- Fix a crash in QR code copy for a chat without a photo.
+- Fix a crash in share options menu showing.
+- Fix a crash on monitor disconnect.
+
+5.6.2 (14.10.24)
+
+- Message selection marks.
+- Better copy username / public link / ID menu in profiles.
+- Keyboard navigation (Up/Down/PageUp/PageDown) in chat preview.
+- Improved QR options for profile links.
+- Fix calls color problems on Windows.
+- Fix scroll problems on Linux.
+
+5.6.1 (07.10.24)
+
+- Fix media viewer sometimes blocking the app after launch.
+
+5.6 (05.10.24)
+
+- Gifts for Telegram Stars.
+- Mention / hashtag autocomplete in media caption field.
+- Resizing the window used for web apps and games.
+- "Include muted chats in folder counters" notifications setting.
+- Emoji from Unicode 15.1.
+
+5.5.8 beta (03.10.24)
+
+- Allow drag-to-scroll in reply quote edit box.
+- Add bot verified badge to web app title.
+- Fix crash when opening some channels.
+- Fix some visual glitches.
+
+5.5.7 beta (01.10.24)
+
+- Add ability to share QR code of bots.
+- Add mention/hashtag autocomplete to Saved GIF caption.
+- Fixed display of working hours in profiles.
+- Respect the maximum reply quote length.
+
+5.5.6 beta (19.09.24)
+
+- Allow resizing the window used for web apps and games.
+- Add mention / hashtag autocomplete in media caption field.
+- Add "Include muted chats in folder counters" notifications setting.
+- Auto-select URL suggested from clipboard when creating a custom link.
+- Update emoji to Unicode 15.1.
+- Fix replying with a quote from media album caption.
+- Fix viewing custom emoji packs from media album caption.
+
+5.5.5 (13.09.24)
+
+- Suggest URL from clipboard when creating a custom link.
+- Fix animated topic icons in topic info page.
+- Fix excessive getChannelDifference requests.
+
+5.5.4 (12.09.24)
+
+- Fix channel updates stopping after difference request failing.
+- Add QR code generation for your username in Settings.
+- Fix swipe-to-reply gestures stopping. (macOS)
+
+5.5.3 (10.09.24)
+
+- Fix custom emoji sending.
+- Add mention link QR code sharing.
+- Fix sending files from network drives. (Windows)
+
+5.5.2 (09.09.24)
+
+- Support two bottom buttons in web apps.
+- Fix text layout outside of the message bubble glitch.
+- Don't stop video when dragging media viewer in window mode.
+
+5.5.1 (06.09.24)
+
+- Fix crash in peer short info box.
+
+5.5 (06.09.24)
+
+- Star Giveaways.
+- Swipe-to-Reply.
+- Audio device selection in one-on-one calls.
+- Text selection in collapsed / expanded quotes.
+
+5.4.6 beta (04.09.24)
+
+- Add Swipe-To-Reply for modern touchpads and touchscreens.
+- Add text selection in collapsed and expanded blockquotes.
+- Fix text rendering in 100% interface scale on Windows.
+
+5.4.5 beta (31.08.24)
+
+- Fix possible crash in text rendering.
+
+5.4.4 beta (29.08.24)
+
+- Fix wrong layout and crashes in text shaping.
+- Fix crashes in voice / video messages playback.
+
+5.4.3 beta (29.08.24)
+
+- Fix working on Windows 7.
+
+5.4.2 beta (28.08.24)
+
+- Select audio devices from one-on-one call window.
+- Bug fixes and other minor improvements.
+- New text layout testing.
+
+5.4.1 (17.08.24)
+
+- Fix crash when sending Star Reaction in comments.
+- Fix loading "Send As" channels in a channel.
+- Place Star Reaction always first in list.
+- Removed paid Invite Links in groups.
+
+5.4 (14.08.24)
+
+- Super Channels with post authors' profiles.
+- Support favorite channels with Star Reactions.
+- Channel Subscriptions with Stars monthly payments.
+
+5.3.2 (02.08.24)
+
+- Fix crash on launch in some Linux systems.
+
+5.3.1 (01.08.24)
+
+- Open normal links from tonsite-s in system browser.
+- Fix unicode tonsite:// links.
+- Fix crash on Linux X11.
+
+5.3 (31.07.24)
+
+- View recent and popular web apps in chats search.
+- Open several web apps in different windows.
+- Gift Telegram Stars to your friends.
+- Send location marks and venues.
+- Open tonsite:// links in webview.
+- Edit order of stickers in your packs.
+
+5.2.6 beta (29.07.24)
+
+- Fix launching on X11. (Linux)
+
+5.2.5 beta (27.07.24)
+
+- Fix media viewer context menu.
+- Fix blockquotes layout in messages.
+
+5.2.4 beta (24.07.24)
+
+- Allow opening several web apps.
+- Send location marks and venues.
+
+5.2.3 (07.07.24)
+
+- Fix crash in bot star stats page.
+- Bug fixes and other minor improvements.
+
+5.2.2 (02.07.24)
+
+- Fix topics search in topic groups.
+- Fix Instant View pages content updating.
+
+5.2.1 (01.07.24)
+
+- Fix crash when opening topic in a new window.
+- Fix crash in topic search scope dropdown.
+- Fix crash in video player.
+- Fix feeze and crash in Instant View (Windows).
+- Allow unlock by Apple Watch or System Password (macOS).
+
+5.2 (30.06.24)
+
+- Pay for content with Telegram Stars.
+- Enable local passcode unlock by Windows Hello and Touch ID.
+- Allow opening forums, topics and archive in a separate window.
+
+5.1.8 beta (15.06.24)
+
+- Support nice blockquotes and code blocks edition when composing messages.
+- Support collapsing blockquotes and specifying syntax highlight language.
+- Support nice spoiler animation in the message composing input field.
+
+5.1.7 (14.06.24)
+
+- Fix recently searched hashtags in chats search.
+- Fix formatting shortcuts on macOS.
+- Fix non-Telegram-Stars-invoice bot buttons with star emoji.
+
+5.1.6 (13.06.24)
+
+- Fix search in archived chats in single-column layout.
+- Improve chat previews for topics, Saved Messages and groups.
+- Fix formatting shortcuts on Linux.
+- Fix options for Telegram Stars buying in case of large amounts.
+
+5.1.5 (07.06.24)
+
+- Return WebView on Windows.
+
+5.1.4 (06.06.24)
+
+- Improve design of search in chat.
+- Show vCard information for shared contacts.
+- Allow scheduling media in topic groups.
+- Several minor bugfixes.
+
+5.1.3 (04.06.24)
+
+- Rebuild version for macOS to fix the phrases.
+
+5.1.2 (03.06.24)
+
+- Several bugs fixed including a couple of crashes.
+
+5.1.1 (01.06.24)
+
+- Fix caption display on some media.
+- Fix collapsed blockquotes rendering.
+- Fully close search in chat by "Cancel" click.
+- Allow editing caption placement and spoiler in topics.
+- Disable effects on forwarded messages and inline results.
+
+5.1 (31.05.24)
+
+- Send messages with effects.
+- Move photo or video captions above the media.
+- Chat preview on chat photo long press or Alt+Click.
+
+5.0.6 beta (30.05.24)
+
+- Fix chat preview with non-default themes.
+- Fix chat preview crash when scrolling up.
+- Jump to chat from preview only by Double-Click.
+- Show chat preview with Force Touch on macOS.
+
+5.0.5 beta (28.05.24)
+
+- Long press on chat userpic to show quick preview.
+- Alt+Click on chat to show quick preview.
+- Show author userpics in forwarded messages.
+
+5.0.4 (28.05.24)
+
+- Fix reply to last message by Ctrl+Up in topics.
+- Some other bug fixes.
+
+5.0.3 (28.05.24)
+
+- Ctrl+Click on Reply in menu to Reply in another chat.
+- Allow Zero-Width-Space character in text rendering.
+- Fix creating custom links in the message field.
+- Fix jump to the topic with last unread message.
+- Fix newline entering via Shift+Enter on Linux.
+- Fix forum search open by Ctrl+F.
+
+5.0.2 (24.05.24)
+
+- Toggle chats search focus by Tab key.
+- Unfocus empty search by Backspace key.
+- Add a spoiler to already sent media when editing.
+- Forward by drag-n-drop to frequent contacts / recent searches.
+- Allow wide chats list in empty window with narrow list when a chat is opened.
+- Improve custom font support in the input fields.
+- Fix input method typing from unfocused search.
+- Fix possible media reordering on batch send.
+- Fix crash in group emoji set saving.
+- Fix possible hang on quit on macOS.
+
+5.0.1 (04.05.24)
+
+- Fix several crashes in new interfaces.
+- Fix monospace font size.
+- Fix possible problem with underline font size.
+
+5.0 (02.05.24)
+
+- Choose custom font family in Settings > Chat settings > Font family.
+- Show "Frequent contacts" when you focus the search field.
+- Show "Recent chats" when you focus the search field.
+- Show "Channels" list and similar channels.
+- Premium users can use animated emoji in polls.
+- Group admins can mass-moderate many messages.
+- Fix frequent crashes on some Linux systems.
+
+4.16.10 beta (26.04.24)
+
+- Group admins can mass-moderate many messages.
+- Premium users can use animated emoji in polls.
+- Revert the default "Open Sans" font to 1.10.
+- Several crash fixes and small improvements.
+
+4.16.9 beta (23.04.24)
+
+- Show "Frequent contacts" when you focus the search field.
+- Show "Recent chats" when you focus the search field.
+- Show "Channels" and channel recommendations.
+- Allow changing font in Settings > Chat settings > Font family.
+
+4.16.8 (16.04.24)
+
+- Fix in-app playing of some video and audio files.
+- Fix crash on Linux opening chats with custom backgrounds.
+- Fix crash on quit after using scheduled messages.
+
+4.16.7 (15.04.24)
+
+- Reimplement file open confirmations.
+
+4.16.6 (09.04.24)
+
+- Show custom emoji preview on long press.
+- Fix resume chat bot button disappearance.
+- Fix GIF files playback. (regression in 4.16.3.beta)
+
+4.16.5 (08.04.24)
+
+- Fix editing privacy for groups and channels invitations.
+- Possible fix for the network unresponsiveness after sleep.
+- Possible fix for wide range of memory allocator crashes on Linux.
+
+4.16.4 (06.04.24)
+
+- Bug fixes and other minor improvements.
+
+4.16.3 beta (05.04.24)
+
+- Improve media upload speed.
+- Update FFmpeg to 6.1.1.
+
+4.16.2 (04.04.24)
+
+- Use IV by default for Telegraph and some Telegram links.
+- Support IV links in bot web-apps.
+- Some bug fixes.
+
+4.16.1 (02.04.24)
+
+- Show information about Fragment phone numbers and usernames.
+- Fix jump to original story from a story repost.
+- Fix old image display in viewer in some cases.
+- Fix several crashes.
+
+4.16 (01.04.24)
+
+- Instant View on Windows 10+ and macOS.
+- Allow scheduling messages in topics.
+- Telegram Business: Links to Chats.
+- Telegram Business: Custom Intro.
+- Telegram Business: Chatbots.
+- Sharing Revenue with Channel Owners.
+
+4.15.7 beta (01.04.24)
+
+- Test crashfix on Linux.
+
+4.15.6 beta (25.03.24)
+
+- Save the Instant View window geometry.
+- Fix jump to anchors with accents in the Instant View.
+- Fix possible crash in the ElasticScroll destructor.
+
+4.15.5 beta (16.03.24)
+
+- Fix a crash in Instant View article parsing.
+- Support AirPods Mute/Unmute toggle in calls on macOS.
+- Disable system proxy on Linux to check if it fixes crashes.
+
+4.15.4 beta (14.03.24)
+
+- Fix initial text color in dark mode Instant View on macOS.
+- Fix non-English symbols encoding in Instant View on macOS.
+- Fix sharing from Instant View on macOS.
+- Fix crash with long messages on Linux.
+
+4.15.3 beta (13.03.24)
+
+- Instant View on Windows (with WebView2) and macOS.
+- Allow scheduling messages in topics.
+- Fix system proxy support on Linux.
+
+4.15.2 (12.03.24)
+
+- Telegram Business: Greeting Message.
+- Telegram Business: Away Message.
+- Telegram Business: Quick Replies.
+- Telegram Business: Working Hours.
+- Close the ongoing call window without hanging up the call.
+- Fast scroll through chats list with Ctrl or Shift pressed.
+- Several bugfixes.
+
+4.15.1 (08.03.24)
+
+- Telegram Business features.
+
+4.15 (18.02.24)
+
+- Stories from groups.
+- Group appearance settings.
+- Group emoji pack.
+- Boost groups to unlock features.
+
+4.14.16 (16.02.24)
+
+- Boost groups.
+
+4.14.15 (10.02.24)
+
+- Fix webview regression on Linux X11. (2nd attempt)
+
+4.14.14 (09.02.24)
+
+- Fix webview regression on Linux X11.
+
+4.14.13 (02.02.24)
+
+- Fix display of statistics for single posts.
+- Allow editing tag name from search tags.
+- Fix a crash in tags removal.
+
+4.14.12 (01.02.24)
+
+- Tags in Saved Messages.
+- Audio output device selection for music and videos.
+- Audio input device selection for voice messages recording.
+- Default device changes should be applied instantly. (Windows / macOS)
+
+4.14.11 beta (25.01.24)
+
+- Fix crash when accepting calls.
+- Fix possible crash in loopback audio on Windows.
+
+4.14.10 beta (25.01.24)
+
+- Allow choosing audio device for music and video files.
+- Allow choosing microphone device for voice recording.
+- Allow pause and resume voice messages recording.
+- Track audio device changes on Windows and macOS.
+
+4.14.9 (19.01.24)
+
+- Fix two possible crashes in messages history and group search.
+- Fix local online status turning off. (once again)
+
+4.14.8 (18.01.24)
+
+- Fix initial position and size of secondary windows.
+- Optimize messages loading. (load replies on demand)
+- Fix local online status turning off.
+
+4.14.7 (18.01.24)
+
+- See when your message was read in private chat.
+- Premium users can see other last seen times if they weren't hidden explicitly.
+- Premium users can allow new chats only from their contacts and other Premium users.
+
+4.14.6 (15.01.24)
+
+- Fix one-time audio tooltip showing in wrong places.
+- Fix media viewer showing above taskbar on Windows.
+- Fix crash in one-time video message playback.
+
+4.14.5 (15.01.24)
+
+- Allow sending one-time voice messages.
+- Improve playing one-time voice and video messages.
+- Remove Ctrl+Shift+[1-6] shortcuts by default, some are used in input methods.
+- Some bugs and glitches fixed.
+
+4.14.4 (08.01.24)
+
+- Switch between logged in accounts using Ctrl+Shift+[1-6] shortcuts.
+- Add poll creation in groups to the attach menu, if exists.
+- Another fix for payment card validation.
+
+4.14.3 (04.01.24)
+
+- Allow sending single-time voice messages.
+- Fix payments card validation.
+- Fix crash when trying to join channels above the limit.
+- Add "Quit Telegram" to the Taskbar context menu. (Windows)
+- Fix opened windows list in the Dock icon context menu. (macOS)
+
+4.14.2 (02.01.24)
+
+- Show original senders name in reply to forward information.
+- Use original senders color / emoji pattern in forwards.
+- Highlight active saved messages chat in list.
+- Fix chats list scrolling on X11 (Linux).
+
+4.14.1 (01.01.24)
+
+- Fix crash in "Author Hidden" chat in "Saved Messages".
+- Improve jump-to-original button layout in "Saved Messages".
+- Show my own chat as "My Notes" in "Saved Messages".
+- In screen sharing source window select first screen by default.
+
+4.14 (31.12.23)
+
+- Improved saved messages.
+- One-time voice messages.
+
+4.13.1 (23.12.23)
+
+- Fix crash in chat history right click.
+- Fix user emoji status display in main menu, profile and settings.
+
+4.13 (22.12.23)
+
+- Support setting channel wallpaper.
+- Support setting channel emoji status.
+- Allow gifting premium to several recipients at once.
+
+4.12.2 (01.12.23)
+
+- Fix choosing custom reactions in channels.
+- Fix crash on launch using old hardware. (Windows)
+
+4.12.1 (01.12.23)
+
+- Fix assertion violation with imported messages.
+
+4.12 (30.11.23)
+
+- Similar channels.
+- Wallpapers for both sides.
+- Voice-to-Text for rveryone.
+- Story statistics for channels.
+- Custom Reactions for channels.
+- Automatic code highlighting in messages.
+
+4.11.8 (14.11.23)
+
+- Fix phrases on macOS by doing a clean rebuild.
+
+4.11.7 (13.11.23)
+
+- Fix sending media files with quote replies.
+- Fix quoted text highlighting in some cases.
+- Fix loading statistics for some channels.
+- Fix Ctrl+Shift+. shortcut on X11.
+- Fix a crash in statistics.
+
+4.11.6 (09.11.23)
+
+- Support multiple boosts and reassignment.
+- Improve giveaway creation flow.
+- Fix crash in topics creation.
+
+4.11.5 (06.11.23)
+
+- Giveaway phrases and sticker fixes.
+- Show quoted part in channel comments.
+- Show replies with icons and multiline preview.
+- Send correct replies in topics and channel comments.
+- In monochrome Windows tray icon use dot instead of counter.
+
+4.11.4 beta (06.11.23)
+
+- Show quoted part in channel comments.
+- Show replies with icons and multiline preview.
+- Send correct replies in topics and channel comments.
+- In monochrome Windows tray icon use dot instead of counter.
+
+4.11.3 (02.11.23)
+
+- Fix adding a link to media captions in scheduled / comments.
+- Fix crash in link preview options saving.
+- Fix possible crash in statistics.
+
+4.11.2 (01.11.23)
+
+- Highlight quoted parts in jump-to-message from replies.
+- Ctrl+Click on message field reply bar to jump to message.
+- Fix empty link preview displaying when generation failed.
+- Fix external replies in topic groups.
+- Allow enabling legacy tray icon on Windows.
+
+4.11.1 (29.10.23)
+
+- Fix crash in emoji status select.
+- Fix crash in language change.
+- Suggest shrinking only photos in webpage previews.
+- Fix opening video files in webpage previews in-app.
+- Fix sending links and markup with customized webpage previews.
+- Show "Saved Messages" as a first row when replying in another chat.
+- Fix selecting words by double-click with webpage previews.
+- Fix delayed webpage preview generation in preview options.
+- Add "show-peer-id-below-about" experimental option.
+
+4.11 (28.10.23)
+
+- View full statistics in your channels and group chats.
+- Choose which link preview in added to the message.
+- Choose if link preview is above or below the text.
+- Choose if link preview has large or small image.
+- Quote parts of text in replies.
+- Add quote formatting.
+- Reply in another chat.
+- Add nice looking code blocks with syntax highlighting.
+- Copy full code block by click on its header.
+- Send a highlighted code block using ```language syntax.
+- Change your name color in Chat Settings.
+- Customize quotes, link previews and replies to your messages.
+
+4.10.5 beta (23.10.23)
+
+- Fix crash in replies to messages with spoilers.
+- Enter boosts stats from three-dot menu.
+
+4.10.4 beta (21.10.23)
+
+- Statistics in channels and group chats.
+- Nice looking code blocks with syntax highlight.
+- Copy full code block by click on its header.
+- Send a highlighted code block using ```language syntax.
+
+4.10.3 (02.10.23)
+
+- Fix crash on external link opening. (Linux only)
+
+4.10.2 (28.09.23)
+
+- Bug fixes and other minor improvements.
+
 4.10.1 (23.09.23)
 
 - Rebuild macOS version with Xcode 14.0.1.
@@ -108,7 +868,7 @@
 4.8.3 (31.05.23)
 
 - Fix main window focus from notifications with disabled animations.
-- Some minor fixes and improvements. 
+- Some minor fixes and improvements.
 
 4.8.2 (16.05.23)
 

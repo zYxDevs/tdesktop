@@ -7,12 +7,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/effects/premium_graphics.h"
 
-#include "data/data_subscription_option.h"
+#include "data/data_premium_subscription_option.h"
 #include "lang/lang_keys.h"
 #include "ui/abstract_button.h"
 #include "ui/effects/animations.h"
 #include "ui/effects/gradient.h"
 #include "ui/effects/numbers_animation.h"
+#include "ui/effects/premium_bubble.h"
 #include "ui/text/text_utilities.h"
 #include "ui/layers/generic_box.h"
 #include "ui/text/text_options.h"
@@ -20,29 +21,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/padding_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/painter.h"
-#include "styles/style_premium.h"
+#include "ui/rect.h"
 #include "styles/style_boxes.h"
-#include "styles/style_settings.h"
 #include "styles/style_layers.h"
-#include "styles/style_widgets.h"
+#include "styles/style_premium.h"
+#include "styles/style_settings.h"
 #include "styles/style_window.h"
 
+#include <QtCore/QFile>
 #include <QtGui/QBrush>
+#include <QtSvg/QSvgRenderer>
 
 namespace Ui {
 namespace Premium {
 namespace {
-
-using TextFactory = Fn<QString(int)>;
-
-constexpr auto kBubbleRadiusSubtractor = 2;
-constexpr auto kDeflectionSmall = 20.;
-constexpr auto kDeflection = 30.;
-constexpr auto kSlideDuration = crl::time(1000);
-
-constexpr auto kStepBeforeDeflection = 0.75;
-constexpr auto kStepAfterDeflection = kStepBeforeDeflection
-	+ (1. - kStepBeforeDeflection) / 2.;
 
 class GradientRadioView : public Ui::RadioView {
 public:
@@ -70,8 +62,8 @@ GradientRadioView::GradientRadioView(
 , _st(&st) {
 }
 
-void GradientRadioView::paint(QPainter &p, int left, int top, int outerWidth) {
-	PainterHighQualityEnabler hq(p);
+void GradientRadioView::paint(QPainter &p, int left, int top, int outerW) {
+	auto hq = PainterHighQualityEnabler(p);
 
 	const auto toggled = currentAnimationValue();
 	const auto toggledFg = _brushOverride
@@ -81,17 +73,17 @@ void GradientRadioView::paint(QPainter &p, int left, int top, int outerWidth) {
 	{
 		const auto skip = (_st->outerSkip / 10.) + (_st->thickness / 2);
 		const auto rect = QRectF(left, top, _st->diameter, _st->diameter)
-			- QMarginsF(skip, skip, skip, skip);
+			- Margins(skip);
 
 		p.setBrush(_st->bg);
 		if (toggled < 1) {
 			p.setPen(QPen(_st->untoggledFg, _st->thickness));
-			p.drawEllipse(style::rtlrect(rect, outerWidth));
+			p.drawEllipse(style::rtlrect(rect, outerW));
 		}
 		if (toggled > 0) {
 			p.setOpacity(toggled);
 			p.setPen(QPen(toggledFg, _st->thickness));
-			p.drawEllipse(style::rtlrect(rect, outerWidth));
+			p.drawEllipse(style::rtlrect(rect, outerW));
 		}
 	}
 
@@ -103,43 +95,13 @@ void GradientRadioView::paint(QPainter &p, int left, int top, int outerWidth) {
 		const auto skip1 = _st->skip / 10.;
 		const auto checkSkip = skip0 * (1. - toggled) + skip1 * toggled;
 		const auto rect = QRectF(left, top, _st->diameter, _st->diameter)
-			- QMarginsF(checkSkip, checkSkip, checkSkip, checkSkip);
-		p.drawEllipse(style::rtlrect(rect, outerWidth));
+			- Margins(checkSkip);
+		p.drawEllipse(style::rtlrect(rect, outerW));
 	}
 }
 
 void GradientRadioView::setBrush(std::optional<QBrush> brush) {
 	_brushOverride = brush;
-}
-
-[[nodiscard]] TextFactory ProcessTextFactory(
-		std::optional<tr::phrase<lngtag_count>> phrase) {
-	return phrase
-		? TextFactory([=](int n) { return (*phrase)(tr::now, lt_count, n); })
-		: TextFactory([=](int n) { return QString::number(n); });
-}
-
-[[nodiscard]] QLinearGradient ComputeGradient(
-		not_null<QWidget*> content,
-		int left,
-		int width) {
-
-	// Take a full width of parent box without paddings.
-	const auto fullGradientWidth = content->parentWidget()->width();
-	auto fullGradient = QLinearGradient(0, 0, fullGradientWidth, 0);
-	fullGradient.setStops(ButtonGradientStops());
-
-	auto gradient = QLinearGradient(0, 0, width, 0);
-	const auto fullFinal = float64(fullGradient.finalStop().x());
-	left += ((fullGradientWidth - content->width()) / 2);
-	gradient.setColorAt(
-		.0,
-		anim::gradient_color_at(fullGradient, left / fullFinal));
-	gradient.setColorAt(
-		1.,
-		anim::gradient_color_at(fullGradient, (left + width) / fullFinal));
-
-	return gradient;
 }
 
 class PartialGradient final {
@@ -181,445 +143,6 @@ QLinearGradient PartialGradient::compute(int position, int size) const {
 	return resultGradient;
 }
 
-class Bubble final {
-public:
-	using EdgeProgress = float64;
-
-	Bubble(
-		const style::PremiumBubble &st,
-		Fn<void()> updateCallback,
-		TextFactory textFactory,
-		const style::icon *icon,
-		bool premiumPossible);
-
-	[[nodiscard]] int counter() const;
-	[[nodiscard]] int height() const;
-	[[nodiscard]] int width() const;
-	[[nodiscard]] int bubbleRadius() const;
-	[[nodiscard]] int countMaxWidth(int maxCounter) const;
-
-	void setCounter(int value);
-	void setTailEdge(EdgeProgress edge);
-	void setFlipHorizontal(bool value);
-	void paintBubble(QPainter &p, const QRect &r, const QBrush &brush);
-
-	[[nodiscard]] rpl::producer<> widthChanges() const;
-
-private:
-	[[nodiscard]] int filledWidth() const;
-
-	const style::PremiumBubble &_st;
-
-	const Fn<void()> _updateCallback;
-	const TextFactory _textFactory;
-
-	const style::icon *_icon;
-	NumbersAnimation _numberAnimation;
-	const int _height;
-	const int _textTop;
-	const bool _premiumPossible;
-
-	int _counter = -1;
-	EdgeProgress _tailEdge = 0.;
-	bool _flipHorizontal = false;
-
-	rpl::event_stream<> _widthChanges;
-
-};
-
-Bubble::Bubble(
-	const style::PremiumBubble &st,
-	Fn<void()> updateCallback,
-	TextFactory textFactory,
-	const style::icon *icon,
-	bool premiumPossible)
-: _st(st)
-, _updateCallback(std::move(updateCallback))
-, _textFactory(std::move(textFactory))
-, _icon(icon)
-, _numberAnimation(_st.font, _updateCallback)
-, _height(_st.height + _st.tailSize.height())
-, _textTop((_height - _st.tailSize.height() - _st.font->height) / 2)
-, _premiumPossible(premiumPossible) {
-	_numberAnimation.setDisabledMonospace(true);
-	_numberAnimation.setWidthChangedCallback([=] {
-		_widthChanges.fire({});
-	});
-	_numberAnimation.setText(_textFactory(0), 0);
-	_numberAnimation.finishAnimating();
-}
-
-int Bubble::counter() const {
-	return _counter;
-}
-
-int Bubble::height() const {
-	return _height;
-}
-
-int Bubble::bubbleRadius() const {
-	return (_height - _st.tailSize.height()) / 2 - kBubbleRadiusSubtractor;
-}
-
-int Bubble::filledWidth() const {
-	return _st.padding.left()
-		+ _icon->width()
-		+ _st.textSkip
-		+ _st.padding.right();
-}
-
-int Bubble::width() const {
-	return filledWidth() + _numberAnimation.countWidth();
-}
-
-int Bubble::countMaxWidth(int maxCounter) const {
-	auto numbers = Ui::NumbersAnimation(_st.font, [] {});
-	numbers.setDisabledMonospace(true);
-	numbers.setDuration(0);
-	numbers.setText(_textFactory(0), 0);
-	numbers.setText(_textFactory(maxCounter), maxCounter);
-	numbers.finishAnimating();
-	return filledWidth() + numbers.maxWidth();
-}
-
-void Bubble::setCounter(int value) {
-	if (_counter != value) {
-		_counter = value;
-		_numberAnimation.setText(_textFactory(_counter), _counter);
-	}
-}
-
-void Bubble::setTailEdge(EdgeProgress edge) {
-	_tailEdge = std::clamp(edge, 0., 1.);
-}
-
-void Bubble::setFlipHorizontal(bool value) {
-	_flipHorizontal = value;
-}
-
-void Bubble::paintBubble(QPainter &p, const QRect &r, const QBrush &brush) {
-	if (_counter < 0) {
-		return;
-	}
-
-	const auto penWidth = _st.penWidth;
-	const auto penWidthHalf = penWidth / 2;
-	const auto bubbleRect = r - style::margins(
-		penWidthHalf,
-		penWidthHalf,
-		penWidthHalf,
-		_st.tailSize.height() + penWidthHalf);
-	{
-		const auto radius = bubbleRadius();
-		auto pathTail = QPainterPath();
-
-		const auto tailWHalf = _st.tailSize.width() / 2.;
-		const auto progress = _tailEdge;
-
-		const auto tailTop = bubbleRect.y() + bubbleRect.height();
-		const auto tailLeftFull = bubbleRect.x()
-			+ (bubbleRect.width() * 0.5)
-			- tailWHalf;
-		const auto tailLeft = bubbleRect.x()
-			+ (bubbleRect.width() * 0.5 * (progress + 1.))
-			- tailWHalf;
-		const auto tailCenter = tailLeft + tailWHalf;
-		const auto tailRight = [&] {
-			const auto max = bubbleRect.x() + bubbleRect.width();
-			const auto right = tailLeft + _st.tailSize.width();
-			const auto bottomMax = max - radius;
-			return (right > bottomMax)
-				? std::max(float64(tailCenter), float64(bottomMax))
-				: right;
-		}();
-		if (_premiumPossible) {
-			pathTail.moveTo(tailLeftFull, tailTop);
-			pathTail.lineTo(tailLeft, tailTop);
-			pathTail.lineTo(tailCenter, tailTop + _st.tailSize.height());
-			pathTail.lineTo(tailRight, tailTop);
-			pathTail.lineTo(tailRight, tailTop - radius);
-			pathTail.moveTo(tailLeftFull, tailTop);
-		}
-		auto pathBubble = QPainterPath();
-		pathBubble.setFillRule(Qt::WindingFill);
-		pathBubble.addRoundedRect(bubbleRect, radius, radius);
-
-		PainterHighQualityEnabler hq(p);
-		p.setPen(QPen(
-			brush,
-			penWidth,
-			Qt::SolidLine,
-			Qt::RoundCap,
-			Qt::RoundJoin));
-		p.setBrush(brush);
-		if (_flipHorizontal) {
-			auto m = QTransform();
-			const auto center = bubbleRect.center();
-			m.translate(center.x(), center.y());
-			m.scale(-1., 1.);
-			m.translate(-center.x(), -center.y());
-			m.translate(-bubbleRect.left() + 1., 0);
-			p.drawPath(m.map(pathTail + pathBubble));
-		} else {
-			p.drawPath(pathTail + pathBubble);
-		}
-	}
-	p.setPen(st::activeButtonFg);
-	p.setFont(_st.font);
-	const auto iconLeft = r.x() + _st.padding.left();
-	_icon->paint(
-		p,
-		iconLeft,
-		bubbleRect.y() + (bubbleRect.height() - _icon->height()) / 2,
-		bubbleRect.width());
-	_numberAnimation.paint(
-		p,
-		iconLeft + _icon->width() + _st.textSkip,
-		r.y() + _textTop,
-		width() / 2);
-}
-
-rpl::producer<> Bubble::widthChanges() const {
-	return _widthChanges.events();
-}
-
-class BubbleWidget final : public Ui::RpWidget {
-public:
-	BubbleWidget(
-		not_null<Ui::RpWidget*> parent,
-		const style::PremiumBubble &st,
-		TextFactory textFactory,
-		rpl::producer<BubbleRowState> state,
-		int maxCounter,
-		bool premiumPossible,
-		rpl::producer<> showFinishes,
-		const style::icon *icon);
-
-protected:
-	void paintEvent(QPaintEvent *e) override;
-
-private:
-	void animateTo(BubbleRowState state);
-
-	const style::PremiumBubble &_st;
-	BubbleRowState _animatingFrom;
-	float64 _animatingFromResultRatio = 0.;
-	rpl::variable<BubbleRowState> _state;
-	const int _maxCounter;
-	Bubble _bubble;
-	const int _maxBubbleWidth;
-	const bool _premiumPossible;
-
-	Ui::Animations::Simple _appearanceAnimation;
-	QSize _spaceForDeflection;
-
-	QLinearGradient _cachedGradient;
-
-	float64 _deflection;
-
-	bool _ignoreDeflection = false;
-	float64 _stepBeforeDeflection;
-	float64 _stepAfterDeflection;
-
-};
-
-BubbleWidget::BubbleWidget(
-	not_null<Ui::RpWidget*> parent,
-	const style::PremiumBubble &st,
-	TextFactory textFactory,
-	rpl::producer<BubbleRowState> state,
-	int maxCounter,
-	bool premiumPossible,
-	rpl::producer<> showFinishes,
-	const style::icon *icon)
-: RpWidget(parent)
-, _st(st)
-, _state(std::move(state))
-, _maxCounter(maxCounter)
-, _bubble(
-	_st,
-	[=] { update(); },
-	std::move(textFactory),
-	icon,
-	premiumPossible)
-, _maxBubbleWidth(_bubble.countMaxWidth(_maxCounter))
-, _premiumPossible(premiumPossible)
-, _deflection(kDeflection)
-, _stepBeforeDeflection(kStepBeforeDeflection)
-, _stepAfterDeflection(kStepAfterDeflection) {
-	const auto resizeTo = [=](int w, int h) {
-		_deflection = (w > _st.widthLimit)
-			? kDeflectionSmall
-			: kDeflection;
-		_spaceForDeflection = QSize(_st.skip, _st.skip);
-		resize(QSize(w, h) + _spaceForDeflection);
-	};
-
-	resizeTo(_bubble.width(), _bubble.height());
-	_bubble.widthChanges(
-	) | rpl::start_with_next([=] {
-		resizeTo(_bubble.width(), _bubble.height());
-	}, lifetime());
-
-	std::move(
-		showFinishes
-	) | rpl::take(1) | rpl::start_with_next([=] {
-		_state.value(
-		) | rpl::start_with_next([=](BubbleRowState state) {
-			animateTo(state);
-		}, lifetime());
-	}, lifetime());
-}
-
-void BubbleWidget::animateTo(BubbleRowState state) {
-	const auto parent = parentWidget();
-	const auto computeLeft = [=](float64 pointRatio, float64 animProgress) {
-		const auto &padding = st::boxRowPadding;
-		const auto halfWidth = (_maxBubbleWidth / 2);
-		const auto left = padding.left();
-		const auto right = padding.right();
-		const auto available = parent->width() - left - right;
-		const auto delta = (pointRatio - _animatingFromResultRatio);
-		const auto center = available
-			* (_animatingFromResultRatio + delta * animProgress);
-		return center - halfWidth + left;
-	};
-	const auto moveEndPoint = state.ratio;
-	const auto computeEdge = [=] {
-		return parent->width()
-			- st::boxRowPadding.right()
-			- _maxBubbleWidth;
-	};
-	struct LeftEdge final {
-		float64 goodPointRatio = 0.;
-		float64 bubbleLeftEdge = 0.;
-	};
-	const auto leftEdge = [&]() -> LeftEdge {
-		const auto finish = computeLeft(moveEndPoint, 1.);
-		const auto &padding = st::boxRowPadding;
-		if (finish <= padding.left()) {
-			const auto halfWidth = (_maxBubbleWidth / 2);
-			const auto goodPointRatio = float64(halfWidth)
-				/ (parent->width() - padding.left() - padding.right());
-			const auto bubbleLeftEdge = (padding.left() - finish)
-				/ (_maxBubbleWidth / 2.);
-			return { goodPointRatio, bubbleLeftEdge };
-		}
-		return {};
-	}();
-	const auto checkBubbleRightEdge = [&]() -> Bubble::EdgeProgress {
-		const auto finish = computeLeft(moveEndPoint, 1.);
-		const auto edge = computeEdge();
-		return (finish >= edge)
-			? (finish - edge) / (_maxBubbleWidth / 2.)
-			: 0.;
-	};
-	const auto bubbleRightEdge = checkBubbleRightEdge();
-	_ignoreDeflection = !_state.current().dynamic
-		&& (bubbleRightEdge || leftEdge.goodPointRatio);
-	if (_ignoreDeflection) {
-		_stepBeforeDeflection = 1.;
-		_stepAfterDeflection = 1.;
-	}
-	const auto resultMoveEndPoint = leftEdge.goodPointRatio
-		? leftEdge.goodPointRatio
-		: moveEndPoint;
-	_bubble.setFlipHorizontal(leftEdge.bubbleLeftEdge);
-
-	const auto duration = kSlideDuration
-		* (_ignoreDeflection ? kStepBeforeDeflection : 1.)
-		* ((_state.current().ratio < 0.001) ? 0.5 : 1.);
-	_appearanceAnimation.start([=](float64 value) {
-		if (!_appearanceAnimation.animating()) {
-			_animatingFrom = state;
-			_animatingFromResultRatio = resultMoveEndPoint;
-		}
-		const auto moveProgress = std::clamp(
-			(value / _stepBeforeDeflection),
-			0.,
-			1.);
-		const auto counterProgress = std::clamp(
-			(value / _stepAfterDeflection),
-			0.,
-			1.);
-		moveToLeft(
-			std::max(
-				int(base::SafeRound(
-					(computeLeft(resultMoveEndPoint, moveProgress)
-						- (_maxBubbleWidth / 2.) * bubbleRightEdge))),
-				0),
-			0);
-
-		const auto now = _animatingFrom.counter
-			+ counterProgress * (state.counter - _animatingFrom.counter);
-		_bubble.setCounter(int(base::SafeRound(now)));
-
-		const auto edgeProgress = leftEdge.bubbleLeftEdge
-			? leftEdge.bubbleLeftEdge
-			: (bubbleRightEdge * value);
-		_bubble.setTailEdge(edgeProgress);
-		update();
-	},
-	0.,
-	1.,
-	duration,
-	anim::easeOutCirc);
-}
-
-void BubbleWidget::paintEvent(QPaintEvent *e) {
-	if (_bubble.counter() < 0) {
-		return;
-	}
-
-	auto p = QPainter(this);
-
-	const auto padding = QMargins(
-		0,
-		_spaceForDeflection.height(),
-		_spaceForDeflection.width(),
-		0);
-	const auto bubbleRect = rect() - padding;
-
-	if (_appearanceAnimation.animating()) {
-		auto gradient = ComputeGradient(
-			parentWidget(),
-			x(),
-			bubbleRect.width());
-		_cachedGradient = std::move(gradient);
-
-		const auto progress = _appearanceAnimation.value(1.);
-		const auto finalScale = (_animatingFromResultRatio > 0.)
-			|| (_state.current().ratio < 0.001);
-		const auto scaleProgress = finalScale
-			? 1.
-			: std::clamp((progress / _stepBeforeDeflection), 0., 1.);
-		const auto scale = scaleProgress;
-		const auto rotationProgress = std::clamp(
-			(progress - _stepBeforeDeflection) / (1. - _stepBeforeDeflection),
-			0.,
-			1.);
-		const auto rotationProgressReverse = std::clamp(
-			(progress - _stepAfterDeflection) / (1. - _stepAfterDeflection),
-			0.,
-			1.);
-
-		const auto offsetX = bubbleRect.x() + bubbleRect.width() / 2;
-		const auto offsetY = bubbleRect.y() + bubbleRect.height();
-		p.translate(offsetX, offsetY);
-		p.scale(scale, scale);
-		if (!_ignoreDeflection) {
-			p.rotate(rotationProgress * _deflection
-				- rotationProgressReverse * _deflection);
-		}
-		p.translate(-offsetX, -offsetY);
-	}
-
-	_bubble.paintBubble(
-		p,
-		bubbleRect,
-		_premiumPossible ? QBrush(_cachedGradient) : st::windowBgActive->b);
-}
-
 class Line final : public Ui::RpWidget {
 public:
 	Line(
@@ -640,7 +163,7 @@ public:
 		not_null<Ui::RpWidget*> parent,
 		const style::PremiumLimits &st,
 		LimitRowLabels labels,
-		rpl::producer<float64> ratio);
+		rpl::producer<LimitRowState> state);
 
 	void setColorOverride(QBrush brush);
 
@@ -657,6 +180,7 @@ private:
 
 	float64 _ratio = 0.;
 	Ui::Animations::Simple _animation;
+	rpl::event_stream<> _recaches;
 	Ui::Text::String _leftLabel;
 	Ui::Text::String _leftText;
 	Ui::Text::String _rightLabel;
@@ -689,42 +213,56 @@ Line::Line(
 	QString min,
 	float64 ratio)
 : Line(parent, st, LimitRowLabels{
-	.leftLabel = tr::lng_premium_free(tr::now),
-	.leftCount = min,
-	.rightLabel = tr::lng_premium(tr::now),
-	.rightCount = max,
-}, rpl::single(ratio)) {
+	.leftLabel = tr::lng_premium_free(),
+	.leftCount = rpl::single(min),
+	.rightLabel = tr::lng_premium(),
+	.rightCount = rpl::single(max),
+}, rpl::single(LimitRowState{ ratio })) {
 }
 
 Line::Line(
 	not_null<Ui::RpWidget*> parent,
 	const style::PremiumLimits &st,
 	LimitRowLabels labels,
-	rpl::producer<float64> ratio)
+	rpl::producer<LimitRowState> state)
 : Ui::RpWidget(parent)
-, _st(st)
-, _leftLabel(st::semiboldTextStyle, labels.leftLabel)
-, _leftText(st::semiboldTextStyle, labels.leftCount)
-, _rightLabel(st::semiboldTextStyle, labels.rightLabel)
-, _rightText(st::semiboldTextStyle, labels.rightCount)
-, _dynamic(labels.dynamic) {
+, _st(st) {
 	resize(width(), st::requestsAcceptButton.height);
 
-	std::move(ratio) | rpl::start_with_next([=](float64 ratio) {
+	const auto set = [&](
+			Ui::Text::String &label,
+			rpl::producer<QString> &text) {
+		std::move(text) | rpl::start_with_next([=, &label](QString text) {
+			label = { st::semiboldTextStyle, text };
+			_recaches.fire({});
+		}, lifetime());
+	};
+	set(_leftLabel, labels.leftLabel);
+	set(_leftText, labels.leftCount);
+	set(_rightLabel, labels.rightLabel);
+	set(_rightText, labels.rightCount);
+
+	std::move(state) | rpl::start_with_next([=](LimitRowState state) {
+		_dynamic = state.dynamic;
 		if (width() > 0) {
-			const auto from = _animation.value(_ratio);
-			const auto duration = kSlideDuration * kStepBeforeDeflection;
+			const auto from = state.animateFromZero
+				? 0.
+				: _animation.value(_ratio);
+			const auto duration = Bubble::SlideNoDeflectionDuration();
 			_animation.start([=] {
 				update();
-			}, from, ratio, duration, anim::easeOutCirc);
+			}, from, state.ratio, duration, anim::easeOutCirc);
 		}
-		_ratio = ratio;
+		_ratio = state.ratio;
 	}, lifetime());
 
-	sizeValue(
-	) | rpl::filter([](QSize size) {
-		return !size.isEmpty();
-	}) | rpl::start_with_next([=](QSize size) {
+	rpl::combine(
+		sizeValue(),
+		parent->widthValue(),
+		_recaches.events_starting_with({})
+	) | rpl::filter([](const QSize &size, int parentWidth, auto) {
+		return !size.isEmpty() && parentWidth;
+	}) | rpl::start_with_next([=](const QSize &size, auto, auto) {
 		recache(size);
 		update();
 	}, lifetime());
@@ -816,7 +354,10 @@ void Line::recache(const QSize &s) {
 
 	const auto pathRound = [&](int width) {
 		auto result = QPainterPath();
-		result.addRoundedRect(r(width), st::buttonRadius, st::buttonRadius);
+		result.addRoundedRect(
+			r(width),
+			st::premiumLineRadius,
+			st::premiumLineRadius);
 		return result;
 	};
 	const auto width = s.width();
@@ -838,7 +379,7 @@ void Line::recache(const QSize &s) {
 	{
 		auto leftPixmap = pixmap(width);
 		auto p = Painter(&leftPixmap);
-		PainterHighQualityEnabler hq(p);
+		auto hq = PainterHighQualityEnabler(p);
 		fill(p, pathRound(width), _st.gradientFromLeft);
 		if (_dynamic) {
 			p.setFont(st::normalFont);
@@ -851,7 +392,7 @@ void Line::recache(const QSize &s) {
 	{
 		auto rightPixmap = pixmap(width);
 		auto p = Painter(&rightPixmap);
-		PainterHighQualityEnabler hq(p);
+		auto hq = PainterHighQualityEnabler(p);
 		fill(p, pathRound(width), !_st.gradientFromLeft);
 		if (_dynamic) {
 			p.setFont(st::normalFont);
@@ -865,56 +406,68 @@ void Line::recache(const QSize &s) {
 
 } // namespace
 
-void AddBubbleRow(
-		not_null<Ui::VerticalLayout*> parent,
-		const style::PremiumBubble &st,
-		rpl::producer<> showFinishes,
-		int min,
-		int current,
-		int max,
-		bool premiumPossible,
-		std::optional<tr::phrase<lngtag_count>> phrase,
-		const style::icon *icon) {
-	AddBubbleRow(
-		parent,
-		st,
-		std::move(showFinishes),
-		rpl::single(BubbleRowState{
-			.counter = current,
-			.ratio = (current - min) / float64(max - min),
-		}),
-		max,
-		premiumPossible,
-		ProcessTextFactory(phrase),
-		icon);
+QString Svg() {
+	return u":/gui/icons/settings/star.svg"_q;
 }
 
-void AddBubbleRow(
-		not_null<Ui::VerticalLayout*> parent,
-		const style::PremiumBubble &st,
-		rpl::producer<> showFinishes,
-		rpl::producer<BubbleRowState> state,
-		int max,
-		bool premiumPossible,
-		Fn<QString(int)> text,
-		const style::icon *icon) {
-	const auto container = parent->add(
-		object_ptr<Ui::FixedHeightWidget>(parent, 0));
-	const auto bubble = Ui::CreateChild<BubbleWidget>(
-		container,
-		st,
-		text ? std::move(text) : ProcessTextFactory(std::nullopt),
-		std::move(state),
-		max,
-		premiumPossible,
-		std::move(showFinishes),
-		icon);
-	rpl::combine(
-		container->sizeValue(),
-		bubble->sizeValue()
-	) | rpl::start_with_next([=](const QSize &parentSize, const QSize &size) {
-		container->resize(parentSize.width(), size.height());
-	}, bubble->lifetime());
+QByteArray ColorizedSvg(const QGradientStops &gradientStops) {
+	auto f = QFile(Svg());
+	if (!f.open(QIODevice::ReadOnly)) {
+		return QByteArray();
+	}
+	auto content = QString::fromUtf8(f.readAll());
+	auto stops = [&] {
+		auto s = QString();
+		for (const auto &stop : gradientStops) {
+			s += QString("<stop offset='%1' stop-color='%2'/>")
+				.arg(QString::number(stop.first), stop.second.name());
+		}
+		return s;
+	}();
+	const auto color = QString("<linearGradient id='Gradient2' "
+		"x1='%1' x2='%2' y1='%3' y2='%4'>%5</linearGradient>")
+		.arg(0)
+		.arg(1)
+		.arg(1)
+		.arg(0)
+		.arg(std::move(stops));
+	content.replace(u"gradientPlaceholder"_q, color);
+	content.replace(u"#fff"_q, u"url(#Gradient2)"_q);
+	f.close();
+	return content.toUtf8();
+}
+
+QImage GenerateStarForLightTopBar(QRectF rect) {
+	auto svg = QSvgRenderer(Ui::Premium::Svg());
+
+	const auto size = rect.size().toSize();
+	auto frame = QImage(
+		size * style::DevicePixelRatio(),
+		QImage::Format_ARGB32_Premultiplied);
+	frame.setDevicePixelRatio(style::DevicePixelRatio());
+
+	auto mask = frame;
+	mask.fill(Qt::transparent);
+	{
+		auto p = QPainter(&mask);
+		auto gradient = QLinearGradient(
+			0,
+			size.height(),
+			size.width(),
+			0);
+		gradient.setStops(Ui::Premium::ButtonGradientStops());
+		p.setPen(Qt::NoPen);
+		p.setBrush(gradient);
+		p.drawRect(0, 0, size.width(), size.height());
+	}
+	frame.fill(Qt::transparent);
+	{
+		auto q = QPainter(&frame);
+		svg.render(&q, QRect(QPoint(), size));
+		q.setCompositionMode(QPainter::CompositionMode_SourceIn);
+		q.drawImage(0, 0, mask);
+	}
+	return frame;
 }
 
 void AddLimitRow(
@@ -948,10 +501,11 @@ void AddLimitRow(
 		not_null<Ui::VerticalLayout*> parent,
 		const style::PremiumLimits &st,
 		LimitRowLabels labels,
-		rpl::producer<float64> ratio) {
+		rpl::producer<LimitRowState> state,
+		const style::margins &padding) {
 	parent->add(
-		object_ptr<Line>(parent, st, std::move(labels), std::move(ratio)),
-		st::boxRowPadding);
+		object_ptr<Line>(parent, st, std::move(labels), std::move(state)),
+		padding);
 }
 
 void AddAccountsRow(
@@ -988,7 +542,7 @@ void AddAccountsRow(
 		badge.fill(Qt::transparent);
 
 		auto p = QPainter(&badge);
-		PainterHighQualityEnabler hq(p);
+		auto hq = PainterHighQualityEnabler(p);
 
 		p.setPen(Qt::NoPen);
 		const auto rectOut = QRect(QPoint(), size);
@@ -1023,7 +577,7 @@ void AddAccountsRow(
 		});
 		const auto index = int(state->accounts.size()) - 1;
 		state->accounts[index].checkbox.setChecked(
-			index == group->value(),
+			index == group->current(),
 			anim::type::instant);
 
 		widget->paintRequest(
@@ -1137,6 +691,37 @@ QGradientStops StoriesIconsGradientStops() {
 	};
 }
 
+QGradientStops CreditsIconGradientStops() {
+	return {
+		{ 0., st::creditsBg1->c },
+		{ 1., st::creditsBg2->c },
+	};
+}
+
+QLinearGradient ComputeGradient(
+		not_null<QWidget*> content,
+		int left,
+		int width) {
+	// Take a full width of parent box without paddings.
+	const auto fullGradientWidth = content->parentWidget()->width();
+	auto fullGradient = QLinearGradient(0, 0, fullGradientWidth, 0);
+	fullGradient.setStops(ButtonGradientStops());
+
+	auto gradient = QLinearGradient(0, 0, width, 0);
+	const auto fullFinal = float64(fullGradient.finalStop().x());
+	left += ((fullGradientWidth - content->width()) / 2);
+	gradient.setColorAt(
+		.0,
+		anim::gradient_color_at(fullGradient, left / fullFinal));
+	gradient.setColorAt(
+		1.,
+		anim::gradient_color_at(
+			fullGradient,
+			std::min(1., (left + width) / fullFinal)));
+
+	return gradient;
+}
+
 void ShowListBox(
 		not_null<Ui::GenericBox*> box,
 		const style::PremiumLimits &st,
@@ -1159,7 +744,7 @@ void ShowListBox(
 		const auto title = content->add(
 			object_ptr<Ui::FlatLabel>(
 				content,
-				base::take(entry.title) | rpl::map(Ui::Text::Bold),
+				base::take(entry.title) | Ui::Text::ToBold(),
 				stLabel),
 			entry.icon ? iconTitlePadding : titlePadding);
 		content->add(
@@ -1250,7 +835,7 @@ void ShowListBox(
 void AddGiftOptions(
 		not_null<Ui::VerticalLayout*> parent,
 		std::shared_ptr<Ui::RadiobuttonGroup> group,
-		std::vector<Data::SubscriptionOption> gifts,
+		std::vector<Data::PremiumSubscriptionOption> gifts,
 		const style::PremiumOption &st,
 		bool topBadges) {
 
@@ -1263,11 +848,15 @@ void AddGiftOptions(
 		int nowIndex = 0;
 		Ui::Animations::Simple animation;
 	};
+	const auto wasGroupValue = group->current();
 	const auto animation = parent->lifetime().make_state<Animation>();
+	animation->nowIndex = wasGroupValue;
 
 	const auto stops = GiftGradientStops();
 
-	const auto addRow = [&](const Data::SubscriptionOption &info, int index) {
+	const auto addRow = [&](
+			const Data::PremiumSubscriptionOption &info,
+			int index) {
 		const auto row = parent->add(
 			object_ptr<Ui::AbstractButton>(parent),
 			st.rowPadding);
@@ -1282,7 +871,7 @@ void AddGiftOptions(
 		const auto &stCheckbox = st::defaultBoxCheckbox;
 		auto radioView = std::make_unique<GradientRadioView>(
 			st::defaultRadio,
-			(group->hasValue() && group->value() == index));
+			(group->hasValue() && group->current() == index));
 		const auto radioViewRaw = radioView.get();
 		const auto radio = Ui::CreateChild<Ui::Radiobutton>(
 			row,
@@ -1292,8 +881,10 @@ void AddGiftOptions(
 			stCheckbox,
 			std::move(radioView));
 		radio->setAttribute(Qt::WA_TransparentForMouseEvents);
+		radio->show();
 		{ // Paint the last frame instantly for the layer animation.
 			group->setValue(0);
+			group->setValue(wasGroupValue);
 			radio->finishAnimating();
 		}
 
@@ -1329,7 +920,7 @@ void AddGiftOptions(
 		row->paintRequest(
 		) | rpl::start_with_next([=](const QRect &r) {
 			auto p = QPainter(row);
-			PainterHighQualityEnabler hq(p);
+			auto hq = PainterHighQualityEnabler(p);
 
 			p.fillRect(r, Qt::transparent);
 
@@ -1397,11 +988,7 @@ void AddGiftOptions(
 				p.setPen(pen);
 				p.setBrush(Qt::NoBrush);
 				const auto borderRect = row->rect()
-					- QMargins(
-						pen.width() / 2,
-						pen.width() / 2,
-						pen.width() / 2,
-						pen.width() / 2);
+					- Margins(pen.width() / 2);
 				const auto round = st.borderRadius;
 				p.drawRoundedRect(borderRect, round, round);
 			}
@@ -1428,7 +1015,7 @@ void AddGiftOptions(
 
 		row->setClickedCallback([=, duration = st::defaultCheck.duration] {
 			group->setValue(index);
-			animation->nowIndex = group->value();
+			animation->nowIndex = group->current();
 			animation->animation.stop();
 			animation->animation.start(
 				[=] { parent->update(); },

@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Clone.
-        uses: actions/checkout@v3.1.0
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -28,9 +28,10 @@ jobs:
         run: |
           sudo apt update
           curl -sSL https://install.python-poetry.org | python3 -
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
 
       - name: Free up some disk space.
-        uses: jlumbroso/free-disk-space@76866dbe54312617f00798d1762df7f43def6e5c
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
 
       - name: Docker image build.
         run: |
@@ -40,6 +41,4 @@ jobs:
 
       - name: Push the Docker image.
         if: ${{ github.ref_name == github.event.repository.default_branch }}
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
-          docker push $IMAGE_TAG
+        run: docker push $IMAGE_TAG

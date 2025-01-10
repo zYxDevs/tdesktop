@@ -7,12 +7,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "boxes/abstract_box.h"
+#include "data/data_birthday.h"
+#include "ui/layers/box_content.h"
 
 namespace style {
 struct ShortInfoCover;
 struct ShortInfoBox;
 } // namespace style
+
+namespace Ui::Menu {
+struct MenuCallback;
+} // namespace Ui::Menu
 
 namespace Media::Streaming {
 class Document;
@@ -36,10 +41,13 @@ enum class PeerShortInfoType {
 
 struct PeerShortInfoFields {
 	QString name;
+	QString channelName;
+	QString channelLink;
 	QString phone;
 	QString link;
 	TextWithEntities about;
 	QString username;
+	Data::Birthday birthday;
 	bool isBio = false;
 	QString user_id;
 };
@@ -157,11 +165,15 @@ public:
 
 	[[nodiscard]] rpl::producer<> openRequests() const;
 	[[nodiscard]] rpl::producer<int> moveRequests() const;
+	[[nodiscard]] auto fillMenuRequests() const
+	-> rpl::producer<Ui::Menu::MenuCallback>;
+
+protected:
+	void contextMenuEvent(QContextMenuEvent *e) override;
 
 private:
 	void prepare() override;
 	void prepareRows();
-	RectParts customCornersFilling() override;
 
 	void resizeEvent(QResizeEvent *e) override;
 
@@ -169,9 +181,12 @@ private:
 	int fillRoundedTopHeight();
 
 	[[nodiscard]] rpl::producer<QString> nameValue() const;
+	[[nodiscard]] rpl::producer<TextWithEntities> channelValue() const;
 	[[nodiscard]] rpl::producer<TextWithEntities> linkValue() const;
 	[[nodiscard]] rpl::producer<QString> phoneValue() const;
 	[[nodiscard]] rpl::producer<QString> usernameValue() const;
+	[[nodiscard]] rpl::producer<QString> birthdayLabel() const;
+	[[nodiscard]] rpl::producer<QString> birthdayValue() const;
 	[[nodiscard]] rpl::producer<TextWithEntities> aboutValue() const;
 	[[nodiscard]] rpl::producer<QString> userIdValue() const;
 
@@ -187,6 +202,9 @@ private:
 	object_ptr<Ui::ScrollArea> _scroll;
 	not_null<Ui::VerticalLayout*> _rows;
 	PeerShortInfoCover _cover;
+
+	base::unique_qptr<Ui::RpWidget> _menuHolder;
+	rpl::event_stream<Ui::Menu::MenuCallback> _fillMenuRequests;
 
 	rpl::event_stream<> _openRequests;
 

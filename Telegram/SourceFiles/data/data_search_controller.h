@@ -19,6 +19,7 @@ class Session;
 
 namespace Data {
 enum class LoadDirection : char;
+struct MessagePosition;
 } // namespace Data
 
 namespace Api {
@@ -32,7 +33,32 @@ struct SearchResult {
 using SearchRequest = MTPmessages_Search;
 using SearchRequestResult = MTPmessages_Messages;
 
-std::optional<SearchRequest> PrepareSearchRequest(
+using HistoryResult = SearchResult;
+using HistoryRequest = MTPmessages_GetHistory;
+using HistoryRequestResult = MTPmessages_Messages;
+
+using GlobalMediaRequest = MTPmessages_SearchGlobal;
+struct GlobalMediaResult {
+	std::vector<Data::MessagePosition> messageIds;
+	int32 offsetRate = 0;
+	int fullCount = 0;
+};
+
+[[nodiscard]] MTPMessagesFilter PrepareSearchFilter(
+	Storage::SharedMediaType type);
+
+[[nodiscard]] std::optional<GlobalMediaRequest> PrepareGlobalMediaRequest(
+	not_null<Main::Session*> session,
+	int32 offsetRate,
+	Data::MessagePosition offsetPosition,
+	Storage::SharedMediaType type,
+	const QString &query);
+
+[[nodiscard]] GlobalMediaResult ParseGlobalMediaResult(
+	not_null<Main::Session*> session,
+	const MTPmessages_Messages &data);
+
+[[nodiscard]] std::optional<SearchRequest> PrepareSearchRequest(
 	not_null<PeerData*> peer,
 	MsgId topicRootId,
 	Storage::SharedMediaType type,
@@ -40,12 +66,23 @@ std::optional<SearchRequest> PrepareSearchRequest(
 	MsgId messageId,
 	Data::LoadDirection direction);
 
-SearchResult ParseSearchResult(
+[[nodiscard]] SearchResult ParseSearchResult(
 	not_null<PeerData*> peer,
 	Storage::SharedMediaType type,
 	MsgId messageId,
 	Data::LoadDirection direction,
 	const SearchRequestResult &data);
+
+[[nodiscard]] HistoryRequest PrepareHistoryRequest(
+	not_null<PeerData*> peer,
+	MsgId messageId,
+	Data::LoadDirection direction);
+
+[[nodiscard]] HistoryResult ParseHistoryResult(
+	not_null<PeerData*> peer,
+	MsgId messageId,
+	Data::LoadDirection direction,
+	const HistoryRequestResult &data);
 
 class SearchController final {
 public:

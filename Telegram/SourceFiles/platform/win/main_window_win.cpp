@@ -30,11 +30,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "history/history.h"
 
-#include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QStyleFactory>
 #include <QtWidgets/QApplication>
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
+#include <QtCore/QOperatingSystemVersion>
 
 #include <Shobjidl.h>
 #include <shellapi.h>
@@ -80,7 +80,7 @@ private:
 	bool nativeEventFilter(
 		const QByteArray &eventType,
 		void *message,
-		long *result) override;
+		native_event_filter_result *result) override;
 
 	bool mainWindowEvent(
 		HWND hWnd,
@@ -171,7 +171,7 @@ EventFilter::EventFilter(not_null<MainWindow*> window) : _window(window) {
 bool EventFilter::nativeEventFilter(
 		const QByteArray &eventType,
 		void *message,
-		long *result) {
+		native_event_filter_result *result) {
 	return Core::Sandbox::Instance().customEnterFromEventLoop([&] {
 		const auto msg = static_cast<MSG*>(message);
 		if (msg->hwnd == _window->psHwnd()
@@ -479,6 +479,21 @@ bool MainWindow::initGeometryFromSystem() {
 	return true;
 }
 
+bool MainWindow::nativeEvent(
+		const QByteArray &eventType,
+		void *message,
+		native_event_filter_result *result) {
+	if (message) {
+		const auto msg = static_cast<MSG*>(message);
+		if (msg->message == WM_IME_STARTCOMPOSITION) {
+			Core::Sandbox::Instance().customEnterFromEventLoop([&] {
+				imeCompositionStartReceived();
+			});
+		}
+	}
+	return false;
+}
+
 void MainWindow::updateWindowIcon() {
 	updateTaskbarAndIconCounters();
 }
@@ -509,10 +524,12 @@ void MainWindow::updateTaskbarAndIconCounters() {
 	auto iconSmallPixmap16 = Tray::IconWithCounter(
 		Tray::CounterLayerArgs(16, counter, muted),
 		true,
+		false,
 		supportMode);
 	auto iconSmallPixmap32 = Tray::IconWithCounter(
 		Tray::CounterLayerArgs(32, counter, muted),
 		true,
+		false,
 		supportMode);
 	QIcon iconSmall, iconBig;
 	iconSmall.addPixmap(iconSmallPixmap16);
@@ -523,9 +540,11 @@ void MainWindow::updateTaskbarAndIconCounters() {
 	iconBig.addPixmap(Tray::IconWithCounter(
 		Tray::CounterLayerArgs(32, bigCounter, muted),
 		false,
+		false,
 		supportMode));
 	iconBig.addPixmap(Tray::IconWithCounter(
 		Tray::CounterLayerArgs(64, bigCounter, muted),
+		false,
 		false,
 		supportMode));
 

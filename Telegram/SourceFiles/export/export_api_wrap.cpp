@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "export/output/export_output_file.h"
 #include "mtproto/mtproto_response.h"
 #include "base/bytes.h"
+#include "base/options.h"
 #include "base/random.h"
 #include <set>
 #include <deque>
@@ -437,8 +438,6 @@ void ApiWrap::startExport(
 	}
 	if (_settings->types & Settings::Type::AnyChatsMask) {
 		_startProcess->steps.push_back(Step::SplitRanges);
-	}
-	if (_settings->types & Settings::Type::AnyChatsMask) {
 		_startProcess->steps.push_back(Step::DialogsCount);
 	}
 	if (_settings->types & Settings::Type::GroupsChannelsMask) {
@@ -540,8 +539,8 @@ void ApiWrap::requestDialogsCount() {
 	Expects(_startProcess != nullptr);
 
 	if (_settings->onlySinglePeer()) {
-		_startProcess->info.dialogsCount =
-			(_settings->singlePeer.type() == mtpc_inputPeerChannel
+		_startProcess->info.dialogsCount
+			= (_settings->singlePeer.type() == mtpc_inputPeerChannel
 				? 1
 				: _splits.size());
 		sendNextStartRequest();
@@ -1069,7 +1068,35 @@ void ApiWrap::requestContacts(FnMut<void(Data::ContactsList&&)> done) {
 	mainRequest(MTPcontacts_GetSaved(
 	)).done([=](const MTPVector<MTPSavedContact> &result) {
 		_contactsProcess->result = Data::ParseContactsList(result);
-		requestTopPeersSlice();
+
+		const auto resolve = [=](int index, const auto &resolveNext) -> void {
+			if (index == _contactsProcess->result.list.size()) {
+				return requestTopPeersSlice();
+			}
+			const auto &contact = _contactsProcess->result.list[index];
+			mainRequest(MTPcontacts_ResolvePhone(
+				MTP_string(qs(contact.phoneNumber))
+			)).done([=](const MTPcontacts_ResolvedPeer &result) {
+				auto &contact = _contactsProcess->result.list[index];
+				contact.userId = result.data().vpeer().match([&](
+						const MTPDpeerUser &user) {
+					return UserId(user.vuser_id());
+				}, [](const auto &) {
+					return UserId();
+				});
+				resolveNext(index + 1, resolveNext);
+			}).fail([=](const MTP::Error &) {
+				resolveNext(index + 1, resolveNext);
+				return true;
+			}).send();
+		};
+
+		if (base::options::lookup<bool>("show-peer-id-below-about").value()) {
+			resolve(0, resolve);
+		} else {
+			requestTopPeersSlice();
+		}
+
 	}).send();
 }
 
@@ -1553,7 +1580,7 @@ void ApiWrap::appendChatsSlice(
 				continue;
 			}
 		}
-		const auto [i, ok] = process.indexByPeer.emplace(
+		const auto &[i, ok] = process.indexByPeer.emplace(
 			info.peerId,
 			nextIndex);
 		if (ok) {
@@ -1624,6 +1651,8 @@ void ApiWrap::requestChatMessages(
 			realPeerInput,
 			MTP_string(), // query
 			MTP_inputPeerSelf(),
+			MTPInputPeer(), // saved_peer_id
+			MTPVector<MTPReaction>(), // saved_reaction
 			MTPint(), // top_msg_id
 			MTP_inputMessagesFilterEmpty(),
 			MTP_int(0), // min_date
@@ -1689,6 +1718,15 @@ void ApiWrap::collectMessagesCustomEmoji(const Data::MessagesSlice &slice) {
 		for (const auto &part : message.text) {
 			if (part.type == Data::TextPart::Type::CustomEmoji) {
 				if (const auto id = part.additional.toULongLong()) {
+					if (!_resolvedCustomEmoji.contains(id)) {
+						_unresolvedCustomEmoji.emplace(id);
+					}
+				}
+			}
+		}
+		for (const auto &reaction : message.reactions) {
+			if (reaction.type == Data::Reaction::Type::CustomEmoji) {
+				if (const auto id = reaction.documentId.toULongLong()) {
 					if (!_resolvedCustomEmoji.contains(id)) {
 						_unresolvedCustomEmoji.emplace(id);
 					}
@@ -1772,38 +1810,55 @@ Data::FileOrigin ApiWrap::currentFileMessageOrigin() const {
 	return result;
 }
 
+std::optional<QByteArray> ApiWrap::getCustomEmoji(QByteArray &data) {
+	if (const auto id = data.toULongLong()) {
+		const auto i = _resolvedCustomEmoji.find(id);
+		if (i == end(_resolvedCustomEmoji)) {
+			return Data::TextPart::UnavailableEmoji();
+		}
+		auto &file = i->second.file;
+		const auto fileProgress = [=](FileProgress value) {
+			return loadMessageEmojiProgress(value);
+		};
+		const auto ready = processFileLoad(
+			file,
+			{ .customEmojiId = id },
+			fileProgress,
+			[=](const QString &path) { loadMessageEmojiDone(id, path); });
+		if (!ready) {
+			return std::nullopt;
+		}
+		using SkipReason = Data::File::SkipReason;
+		if (file.skipReason == SkipReason::Unavailable) {
+			return Data::TextPart::UnavailableEmoji();
+		} else if (file.skipReason == SkipReason::FileType
+			|| file.skipReason == SkipReason::FileSize) {
+			return QByteArray();
+		} else {
+			return file.relativePath.toUtf8();
+		}
+	}
+	return data;
+}
+
 bool ApiWrap::messageCustomEmojiReady(Data::Message &message) {
 	for (auto &part : message.text) {
 		if (part.type == Data::TextPart::Type::CustomEmoji) {
-			if (const auto id = part.additional.toULongLong()) {
-				const auto i = _resolvedCustomEmoji.find(id);
-				if (i == end(_resolvedCustomEmoji)) {
-					part.additional = Data::TextPart::UnavailableEmoji();
-				} else {
-					auto &file = i->second.file;
-					const auto fileProgress = [=](FileProgress value) {
-						return loadMessageEmojiProgress(value);
-					};
-					const auto ready = processFileLoad(
-						file,
-						{ .customEmojiId = id },
-						fileProgress,
-						[=](const QString &path) {
-							loadMessageEmojiDone(id, path);
-						});
-					if (!ready) {
-						return false;
-					}
-					using SkipReason = Data::File::SkipReason;
-					if (file.skipReason == SkipReason::Unavailable) {
-						part.additional = Data::TextPart::UnavailableEmoji();
-					} else if (file.skipReason == SkipReason::FileType
-						|| file.skipReason == SkipReason::FileSize) {
-						part.additional = QByteArray();
-					} else {
-						part.additional = file.relativePath.toUtf8();
-					}
-				}
+			auto data = getCustomEmoji(part.additional);
+			if (data.has_value()) {
+				part.additional = base::take(*data);
+			} else {
+				return false;
+			}
+		}
+	}
+	for (auto &reaction : message.reactions) {
+		if (reaction.type == Data::Reaction::Type::CustomEmoji) {
+			auto data = getCustomEmoji(reaction.documentId);
+			if (data.has_value()) {
+				reaction.documentId = base::take(*data);
+			} else {
+				return false;
 			}
 		}
 	}

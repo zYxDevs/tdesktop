@@ -10,9 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 #include "data/data_document_resolver.h"
 #include "data/data_session.h"
-#include "data/data_cloud_themes.h"
 #include "data/data_file_origin.h"
-#include "data/data_auto_download.h"
 #include "media/clip/media_clip_reader.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -24,9 +22,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/themes/window_theme_preview.h"
 #include "core/core_settings.h"
 #include "core/application.h"
+#include "core/mime_type.h"
 #include "storage/file_download.h"
 #include "ui/chat/attach/attach_prepare.h"
-#include "ui/image/image.h"
 
 #include <QtCore/QBuffer>
 #include <QtGui/QImageReader>
@@ -298,10 +296,12 @@ void DocumentMedia::automaticLoad(
 		// No automatic download in this case.
 		return;
 	}
+	const auto indata = _owner->filename();
 	const auto filename = toCache
 		? QString()
 		: DocumentFileNameForSave(_owner);
-	const auto shouldLoadFromCloud = !Data::IsExecutableName(filename)
+	const auto shouldLoadFromCloud = (indata.isEmpty()
+		|| Core::DetectNameType(indata) != Core::NameType::Executable)
 		&& (item
 			? Data::AutoDownload::Should(
 				_owner->session().settings().autoDownload(),

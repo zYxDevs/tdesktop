@@ -15,12 +15,14 @@ settingsButton: SettingsButton(infoProfileButton) {
 	padding: margins(60px, 10px, 22px, 10px);
 	iconLeft: 20px;
 }
+settingsButtonNoIcon: SettingsButton(settingsButton) {
+	padding: margins(22px, 10px, 22px, 8px);
+}
 settingsButtonLight: SettingsButton(settingsButton) {
 	textFg: lightButtonFg;
 	textFgOver: lightButtonFgOver;
 }
-settingsButtonNoIcon: SettingsButton(settingsButton) {
-	padding: margins(22px, 10px, 22px, 8px);
+settingsButtonLightNoIcon: SettingsButton(settingsButtonLight, settingsButtonNoIcon) {
 }
 settingsButtonNoIconLocked : SettingsButton(settingsButtonNoIcon) {
 	toggle: Toggle(infoProfileToggle) {
@@ -47,7 +49,6 @@ settingsOptionDisabled: SettingsButton(settingsButtonNoIcon) {
 	textBgOver: windowBg;
 	toggleOver: infoProfileToggle;
 }
-settingsSectionSkip: 6px;
 settingsButtonRightSkip: 23px;
 settingsScalePadding: margins(60px, 7px, 22px, 4px);
 settingsBigScalePadding: margins(21px, 7px, 21px, 4px);
@@ -72,13 +73,13 @@ settingsUpdateState: FlatLabel(defaultFlatLabel) {
 settingsUpdate: SettingsButton(infoMainButton, settingsButtonNoIcon) {
 }
 settingsUpdateStatePosition: point(22px, 29px);
-settingsDividerLabelPadding: margins(22px, 8px, 22px, 16px);
 
 settingsIconChat: icon {{ "settings/chat", settingsIconFg }};
 settingsIconInterfaceScale: icon {{ "settings/interface_scale", settingsIconFg }};
 settingsIconStickers: icon {{ "settings/stickers", settingsIconFg }};
 settingsIconEmoji: icon {{ "settings/emoji", settingsIconFg }};
 
+settingsPremiumIconWallpapers: icon {{ "settings/photo", settingsIconFg }};
 settingsPremiumIconStories: icon {{ "settings/stories", settingsIconFg }};
 settingsPremiumIconChannelsOff: icon {{ "settings/premium/channels_off", settingsIconFg }};
 settingsPremiumIconDouble: icon {{ "settings/premium/double", settingsIconFg }};
@@ -90,6 +91,11 @@ settingsPremiumIconStar: icon {{ "settings/premium/star", settingsIconFg }};
 settingsPremiumIconVoice: icon {{ "settings/premium/voice", settingsIconFg }};
 settingsPremiumIconFiles: icon {{ "settings/premium/files", settingsIconFg }};
 settingsPremiumIconTranslations: icon {{ "settings/premium/translations", settingsIconFg }};
+settingsPremiumIconTags: icon {{ "settings/premium/tags", settingsIconFg }};
+settingsPremiumIconLastSeen: icon {{ "settings/premium/lastseen", settingsIconFg }};
+settingsPremiumIconPrivacy: icon {{ "settings/premium/privacy", settingsIconFg }};
+settingsPremiumIconBusiness: icon {{ "settings/premium/market", settingsIconFg }};
+settingsPremiumIconEffects: icon {{ "settings/premium/effects", settingsIconFg }};
 
 settingsStoriesIconOrder: icon {{ "settings/premium/stories_order", premiumButtonBg1 }};
 settingsStoriesIconStealth: icon {{ "menu/stealth", premiumButtonBg1 }};
@@ -99,11 +105,29 @@ settingsStoriesIconDownload: icon {{ "menu/download", premiumButtonBg1 }};
 settingsStoriesIconCaption: icon {{ "settings/premium/stories_caption", premiumButtonBg1 }};
 settingsStoriesIconLinks: icon {{ "menu/links_profile", premiumButtonBg1 }};
 
+settingsBusinessIconLocation: icon {{ "settings/premium/business/business_location", settingsIconFg }};
+settingsBusinessIconHours: icon {{ "settings/premium/business/business_hours", settingsIconFg }};
+settingsBusinessIconReplies: icon {{ "settings/premium/business/business_quick", settingsIconFg }};
+settingsBusinessIconGreeting: icon {{ "settings/premium/status", settingsIconFg }};
+settingsBusinessIconAway: icon {{ "settings/premium/business/business_away", settingsIconFg }};
+settingsBusinessIconChatbots: icon {{ "settings/premium/business/business_chatbots", settingsIconFg }};
+settingsBusinessIconChatIntro: icon {{ "settings/premium/business/business_intro", settingsIconFg }};
+settingsBusinessIconChatLinks: icon {{ "settings/premium/business/business_links", settingsIconFg }};
+
+settingsBusinessPromoLocation: icon {{ "settings/premium/promo/business_location", premiumButtonBg1 }};
+settingsBusinessPromoHours: icon {{ "settings/premium/promo/business_hours", premiumButtonBg1 }};
+settingsBusinessPromoReplies: icon {{ "settings/premium/promo/business_quickreply", premiumButtonBg1 }};
+settingsBusinessPromoGreeting: icon {{ "settings/premium/promo/business_greeting", premiumButtonBg1 }};
+settingsBusinessPromoAway: icon {{ "settings/premium/promo/business_away", premiumButtonBg1 }};
+settingsBusinessPromoChatbots: icon {{ "settings/premium/promo/business_chatbot", premiumButtonBg1 }};
+settingsBusinessPromoChatIntro: icon {{ "settings/premium/promo/business_intro", premiumButtonBg1 }};
+settingsBusinessPromoChatLinks: icon {{ "settings/premium/promo/business_chatlink", premiumButtonBg1 }};
+
+settingsStarRefEarnStars: icon {{ "settings/premium/business/earn_stars", settingsIconFg }};
+
 settingsPremiumNewBadge: FlatLabel(defaultFlatLabel) {
 	style: TextStyle(semiboldTextStyle) {
 		font: font(10px semibold);
-		linkFont: font(10px semibold);
-		linkFontOver: font(10px semibold);
 	}
 	textFg: windowFgActive;
 }
@@ -130,19 +154,6 @@ settingsSendTypeSkip: 5px;
 
 settingsBackgroundThumb: 76px;
 settingsThumbSkip: 16px;
-settingsSubsectionTitle: FlatLabel(defaultFlatLabel) {
-	style: TextStyle(semiboldTextStyle) {
-		font: font(boxFontSize semibold);
-		linkFont: font(boxFontSize semibold);
-		linkFontOver: font(boxFontSize semibold underline);
-	}
-	textFg: windowActiveTextFg;
-	minWidth: 240px;
-}
-settingsSubsectionTitleRight: FlatLabel(settingsSubsectionTitle) {
-	minWidth: 0px;
-}
-settingsSubsectionTitlePadding: margins(22px, 7px, 10px, 9px);
 settingsBackgroundPadding: margins(22px, 11px, 10px, 12px);
 settingsTileSkip: 15px;
 settingsFromGalleryTop: 2px;
@@ -153,6 +164,11 @@ settingsPrivacyOption: Checkbox(settingsCheckbox) {
 settingsPrivacySecurityPadding: 12px;
 settingsPrivacySkip: 14px;
 settingsPrivacySkipTop: 4px;
+settingsPrivacyPremium: icon{{ "profile_premium", premiumButtonFg }};
+
+settingsPrivacyAddBirthday: FlatLabel(defaultFlatLabel) {
+	minWidth: 256px;
+}
 
 settingsCloudPasswordIconSize: 100px;
 
@@ -162,7 +178,7 @@ settingLocalPasscodeInputField: InputField(defaultInputField) {
 settingLocalPasscodeDescription: FlatLabel(changePhoneDescription) {
 	minWidth: 256px;
 }
-settingLocalPasscodeDescriptionHeight: 52px;
+settingLocalPasscodeDescriptionHeight: 53px;
 settingLocalPasscodeError: FlatLabel(changePhoneError) {
 	minWidth: 256px;
 }
@@ -181,6 +197,10 @@ settingsInfoPhotoSkip: 7px;
 settingsInfoNameSkip: -1px;
 settingsInfoUploadLeft: 6px;
 settingsInfoPeerBadge: InfoPeerBadge {
+	verified: icon {
+		{ "dialogs/dialogs_verified_star", dialogsVerifiedIconBg },
+		{ "dialogs/dialogs_verified_check", dialogsVerifiedIconFg },
+	};
 	premium: icon {{ "dialogs/dialogs_premium", dialogsVerifiedIconBg }};
 	premiumFg: dialogsVerifiedIconBg;
 	sizeTag: 0; // Normal
@@ -201,8 +221,6 @@ settingsBio: InputField(defaultInputField) {
 	borderActive: 0px;
 
 	heightMin: 32px;
-
-	font: boxTextFont;
 }
 
 settingsBioMargins: margins(22px, 6px, 22px, 4px);
@@ -215,8 +233,6 @@ settingsCoverName: FlatLabel(defaultFlatLabel) {
 	maxHeight: 24px;
 	style: TextStyle(defaultTextStyle) {
 		font: font(17px semibold);
-		linkFont: font(17px semibold);
-		linkFontOver: font(17px semibold);
 	}
 }
 settingsCoverStatus: FlatLabel(defaultFlatLabel) {
@@ -298,15 +314,11 @@ settingsDeviceName: InputField(defaultInputField) {
 	placeholderFont: normalFont;
 
 	heightMin: 29px;
-
-	font: boxTextFont;
 }
 
 dictionariesSectionButton: SettingsButton(settingsUpdateToggle) {
 	style: TextStyle(defaultTextStyle) {
 		font: font(14px semibold);
-		linkFont: font(14px semibold);
-		linkFontOver: font(14px semibold underline);
 	}
 }
 
@@ -349,8 +361,6 @@ sessionBigName: FlatLabel(defaultFlatLabel) {
 	maxHeight: 29px;
 	style: TextStyle(defaultTextStyle) {
 		font: font(20px semibold);
-		linkFont: font(20px semibold);
-		linkFontOver: font(20px semibold underline);
 	}
 	align: align(top);
 }
@@ -434,8 +444,6 @@ notifyPreviewBottomSkip: 9px;
 settingsPremiumButtonPadding: margins(11px, 11px, 11px, 3px);
 settingsPremiumTopBarBackIcon: icon {{ "info/info_back", premiumButtonFg }};
 settingsPremiumTopBarBackIconOver: icon {{ "info/info_back", premiumButtonFg }};
-settingsPremiumStarSize: size(84px, 81px);
-settingsPremiumStarTopSkip: 37px;
 settingsPremiumTopBarBack: IconButton(infoTopBarBack) {
 	icon: settingsPremiumTopBarBackIcon;
 	iconOver: settingsPremiumTopBarBackIconOver;
@@ -477,44 +485,20 @@ settingsPremiumPreviewIconTitlePadding: margins(62px, 13px, 24px, 1px);
 settingsPremiumPreviewIconAboutPadding: margins(62px, 0px, 24px, 0px);
 settingsPremiumPreviewIconPosition: point(20px, 7px);
 
-settingsPremiumTitlePadding: margins(0px, 18px, 0px, 11px);
-settingsPremiumAboutTextStyle: TextStyle(defaultTextStyle) {
-	font: font(12px);
-	linkFont: font(12px underline);
-	linkFontOver: font(12px underline);
-	lineHeight: 18px;
-}
-settingsPremiumAbout: FlatLabel(defaultFlatLabel) {
-	style: settingsPremiumAboutTextStyle;
-	palette: TextPalette(defaultTextPalette) {
-		linkFg: premiumButtonFg;
-	}
-	align: align(top);
-	textFg: premiumButtonFg;
-	minWidth: 190px;
-}
 settingsPremiumArrowShift: point(-5px, -1px);
 settingsPremiumArrow: icon{{ "settings/premium/arrow", menuIconFg }};
 settingsPremiumArrowOver: icon{{ "settings/premium/arrow", menuIconFgOver }};
 
 settingsPremiumOptionsPadding: margins(0px, 9px, 0px, 2px);
-settingsPremiumTopHeight: 220px;
-settingsPremiumUserHeight: 223px;
+settingsPremiumTopHeight: 202px;
+settingsPremiumUserHeight: 205px;
 settingsPremiumUserTitlePadding: margins(0px, 16px, 0px, 6px);
 settingsPremiumUserTitle: FlatLabel(boxTitle) {
 	style: TextStyle(defaultTextStyle) {
 		font: boxTitleFont;
-		linkFont: boxTitleFont;
-		linkFontOver: font(16px semibold underline);
-		lineHeight: 14px;
+		lineHeight: 20px;
 	}
 	minWidth: 300px;
-	maxHeight: 0px;
-	align: align(top);
-}
-settingsPremiumUserAbout: FlatLabel(boxDividerLabel) {
-	style: settingsPremiumAboutTextStyle;
-	minWidth: 315px;
 	maxHeight: 0px;
 	align: align(top);
 }
@@ -537,14 +521,6 @@ settingsNotificationTypeDetails: FlatLabel(defaultFlatLabel) {
 	textFg: windowSubTextFg;
 }
 
-requestPeerRestriction: FlatLabel(defaultFlatLabel) {
-	minWidth: 240px;
-	textFg: membersAboutLimitFg;
-	style: TextStyle(boxTextStyle) {
-		lineHeight: 22px;
-	}
-}
-
 powerSavingButton: SettingsButton(settingsButton) {
 	style: boxTextStyle;
 	padding: margins(57px, 8px, 22px, 8px);
@@ -561,18 +537,14 @@ filterInviteBox: Box(defaultBox) {
 	button: RoundButton(defaultActiveButton) {
 		height: 42px;
 		textTop: 12px;
-		font: font(13px semibold);
+		style: semiboldTextStyle;
 	}
 }
 filterInviteButtonStyle: TextStyle(defaultTextStyle) {
 	font: font(13px semibold);
-	linkFont: font(13px underline);
-	linkFontOver: font(13px underline);
 }
 filterInviteButtonBadgeStyle: TextStyle(defaultTextStyle) {
 	font: font(12px semibold);
-	linkFont: font(12px underline);
-	linkFontOver: font(12px underline);
 }
 filterInviteButtonBadgePadding: margins(5px, 0px, 5px, 2px);
 filterInviteButtonBadgeSkip: 5px;
@@ -580,8 +552,6 @@ filterLinkDividerLabelPadding: margins(0px, 10px, 0px, 17px);
 filterLinkTitlePadding: margins(0px, 15px, 0px, 17px);
 filterLinkAboutTextStyle: TextStyle(defaultTextStyle) {
 	font: font(12px);
-	linkFont: font(12px underline);
-	linkFontOver: font(12px underline);
 	lineHeight: 17px;
 }
 filterLinkAbout: FlatLabel(defaultFlatLabel) {
@@ -596,9 +566,9 @@ filterLinkPreviewRadius: 13px;
 filterLinkPreviewTop: 30px;
 filterLinkPreviewColumn: 65px;
 filterLinkPreviewAllBottom: 18px;
-filterLinkPreviewAllTop: 17px;
+filterLinkPreviewAllTop: 15px;
 filterLinkPreviewMyBottom: 74px;
-filterLinkPreviewMyTop: 73px;
+filterLinkPreviewMyTop: 71px;
 filterLinkPreviewChatSize: 36px;
 filterLinkPreviewChatSkip: 10px;
 filterLinkPreviewBadgeLeft: 40px;
@@ -606,4 +576,109 @@ filterLinkPreviewBadgeTop: 38px;
 filterLinkSubsectionTitlePadding: margins(0px, 5px, 0px, -4px);
 filterLinkChatsList: PeerList(peerListBox) {
 	padding: margins(0px, 0px, 0px, membersMarginBottom);
+}
+
+settingsColorSampleSize: 20px;
+settingsColorSampleCenter: 6px;
+settingsColorSampleCenterRadius: 2px;
+settingsColorSamplePadding: margins(8px, 2px, 8px, 2px);
+settingsColorSampleSkip: 6px;
+settingsColorButton: SettingsButton(settingsButton) {
+	padding: margins(60px, 10px, 48px, 10px);
+}
+settingsColorRadioMargin: 17px;
+settingsColorRadioSkip: 13px;
+settingsColorRadioStroke: 2px;
+settingsLevelBadgeLock: icon {{ "chat/mini_lock", premiumButtonFg }};
+settingsLevelBadgeLockSkip: 4px;
+
+messagePrivacyTopSkip: 8px;
+messagePrivacyRadioSkip: 6px;
+messagePrivacyBottomSkip: 10px;
+messagePrivacyCheck: Checkbox(settingsPrivacyOption) {
+	textPosition: point(13px, 1px);
+}
+messagePrivacySubscribe: SettingsButton(settingsButtonLight) {
+	padding: margins(56px, 10px, 22px, 8px);
+	iconLeft: 20px;
+}
+messagePrivacyLock: icon {{ "info/info_rights_lock", checkboxFg }};
+
+peerAppearanceButton: SettingsButton(settingsButtonLight) {
+	padding: margins(60px, 8px, 22px, 8px);
+	iconLeft: 20px;
+}
+peerAppearanceCoverLabelMargin: margins(22px, 0px, 22px, 17px);
+peerAppearanceIconPadding: margins(0px, 15px, 0px, 5px);
+peerAppearanceDividerTextMargin: margins(22px, 8px, 22px, 11px);
+
+settingsChatbotsUsername: InputField(defaultMultiSelectSearchField) {
+}
+settingsChatbotsAccess: Checkbox(defaultCheckbox) {
+	textPosition: point(18px, 2px);
+}
+settingsLocationAddress: InputField(defaultMultiSelectSearchField) {
+}
+settingsChatbotsUsernameMargins: margins(20px, 8px, 20px, 8px);
+settingsChatbotsAccessMargins: margins(22px, 5px, 22px, 9px);
+settingsChatbotsAccessSkip: 4px;
+settingsChatbotsBottomTextMargin: margins(22px, 8px, 22px, 3px);
+settingsChatbotsAdd: SettingsButton(settingsButton) {
+	iconLeft: 22px;
+}
+settingsWorkingHoursWeek: SettingsButton(settingsButtonNoIcon) {
+	height: 40px;
+	padding: margins(22px, 4px, 22px, 4px);
+}
+settingsWorkingHoursDetails: settingsNotificationTypeDetails;
+settingsWorkingHoursPicker: 200px;
+settingsWorkingHoursPickerItemHeight: 40px;
+
+settingsAwaySchedulePadding: margins(0px, 8px, 0px, 8px);
+
+settingsAddReplyLabel: FlatLabel(defaultFlatLabel) {
+	minWidth: 256px;
+}
+settingsAddReplyField: InputField(defaultInputField) {
+	textBg: transparent;
+	textMargins: margins(0px, 10px, 32px, 2px);
+
+	placeholderFg: placeholderFg;
+	placeholderFgActive: placeholderFgActive;
+	placeholderFgError: placeholderFgActive;
+	placeholderMargins: margins(2px, 0px, 2px, 0px);
+	placeholderScale: 0.;
+
+	heightMin: 36px;
+}
+settingsChatbotsNotFound: FlatLabel(defaultFlatLabel) {
+	textFg: windowSubTextFg;
+	align: align(top);
+}
+settingsChatbotsDeleteIcon: icon {{ "dialogs/dialogs_cancel_search", dialogsMenuIconFg }};
+settingsChatbotsDeleteIconOver: icon {{ "dialogs/dialogs_cancel_search", dialogsMenuIconFgOver }};
+
+settingsChatIntroField: InputField(defaultMultiSelectSearchField) {
+	textMargins: margins(2px, 0px, 32px, 0px);
+}
+settingsChatIntroFieldMargins: margins(20px, 15px, 20px, 8px);
+
+settingsChatLinkEmojiTop: 2px;
+settingsChatLinkField: InputField(defaultInputField) {
+	textBg: transparent;
+	textMargins: margins(2px, 8px, 2px, 8px);
+
+	placeholderFg: placeholderFg;
+	placeholderFgActive: placeholderFgActive;
+	placeholderFgError: placeholderFgActive;
+	placeholderMargins: margins(0px, 0px, 0px, 0px);
+	placeholderScale: 0.;
+	placeholderFont: normalFont;
+
+	border: 0px;
+	borderActive: 0px;
+
+	heightMin: 32px;
+
+	style: defaultTextStyle;
 }

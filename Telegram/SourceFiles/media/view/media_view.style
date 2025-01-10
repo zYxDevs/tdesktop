@@ -194,8 +194,6 @@ mediaviewSaveMsgShown: 2000;
 mediaviewSaveMsgHiding: 2500;
 mediaviewSaveMsgStyle: TextStyle(defaultTextStyle) {
 	font: font(16px);
-	linkFont: font(16px);
-	linkFontOver: font(16px underline);
 }
 mediaviewTextPalette: TextPalette(defaultTextPalette) {
 	linkFg: mediaviewTextLinkFg;
@@ -315,17 +313,21 @@ mediaviewTitleMaximizeMacPadding: margins(0px, 4px, 8px, 4px);
 mediaviewShadowTop: icon{{ "mediaview/shadow_top", windowShadowFg }};
 mediaviewShadowBottom: icon{{ "mediaview/shadow_bottom", windowShadowFg }};
 
+mediaviewSpeedMenuInner: Menu(mediaviewMenu) {
+	separator: MenuSeparator(mediaviewMenuSeparator) {
+		fg: groupCallMenuBgOver;
+		padding: margins(0px, 4px, 0px, 4px);
+		width: 6px;
+	}
+	itemPadding: margins(54px, 7px, 54px, 9px);
+	itemFgDisabled: mediaviewTextLinkFg;
+}
 mediaviewSpeedMenu: MediaSpeedMenu(mediaPlayerSpeedMenu) {
 	dropdown: DropdownMenu(mediaviewDropdownMenu) {
-		menu: Menu(mediaviewMenu) {
-			separator: MenuSeparator(mediaviewMenuSeparator) {
-				fg: groupCallMenuBgOver;
-				padding: margins(0px, 4px, 0px, 4px);
-				width: 6px;
-			}
-			itemPadding: margins(54px, 7px, 54px, 9px);
-			itemFgDisabled: mediaviewTextLinkFg;
-		}
+		menu: mediaviewSpeedMenuInner;
+	}
+	qualityMenu: Menu(mediaviewSpeedMenuInner) {
+		itemPadding: margins(17px, 7px, 54px, 9px);
 	}
 	activeCheck: icon {{ "player/player_check", mediaviewTextLinkFg }};
 	slider: MediaSlider(defaultContinuousSlider) {
@@ -355,10 +357,11 @@ mediaviewSpeedMenu: MediaSpeedMenu(mediaPlayerSpeedMenu) {
 mediaviewSpeedButton: MediaSpeedButton(mediaPlayerSpeedButton) {
 	size: size(32px, 32px);
 	padding: margins(0px, 0px, 0px, 0px);
+	font: font(8px bold);
 	fg: mediaviewPlaybackIconFg;
 	overFg: mediaviewPlaybackIconFgOver;
 	activeFg: mediaviewTextLinkFg;
-	icon: icon{{ "player/player_speed", mediaviewPlaybackIconFg }};
+	icon: icon{{ "player/player_settings", mediaviewPlaybackIconFg }};
 	ripple: RippleAnimation(defaultRippleAnimation) {
 		color: mediaviewPlaybackIconRipple;
 	}
@@ -379,11 +382,15 @@ themePreviewLoadingFont: font(16px);
 themePreviewLoadingFg: windowSubTextFg;
 themePreviewApplyButton: RoundButton(defaultActiveButton) {
 	height: 38px;
-	font: font(15px semibold);
+	style: TextStyle(semiboldTextStyle) {
+		font: font(15px semibold);
+	}
 }
 themePreviewCancelButton: RoundButton(defaultLightButton) {
 	height: 38px;
-	font: font(15px semibold);
+	style: TextStyle(semiboldTextStyle) {
+		font: font(15px semibold);
+	}
 }
 themePreviewButtonsSkip: 20px;
 themePreviewDialogsWidth: 312px;
@@ -441,10 +448,14 @@ storiesHeaderName: FlatLabel(defaultFlatLabel) {
 storiesHeaderNamePosition: point(50px, 0px);
 storiesHeaderDate: FlatLabel(defaultFlatLabel) {
 	textFg: mediaviewControlFg;
+	palette: TextPalette(defaultTextPalette) {
+		linkFg: mediaviewControlFg;
+	}
 	minWidth: 10px;
 	maxHeight: 20px;
 }
 storiesHeaderDatePosition: point(50px, 17px);
+storiesHeaderRepostWidthMin: 40px;
 storiesShadowTop: icon{{ "mediaview/shadow_bottom-flip_vertical", windowShadowFg }};
 storiesShadowBottom: mediaviewShadowBottom;
 storiesControlsMinWidth: 280px;
@@ -480,6 +491,8 @@ storiesLike: IconButton(storiesAttach) {
 }
 storiesRecordVoice: icon {{ "chat/input_record", storiesComposeGrayIcon }};
 storiesRecordVoiceOver: icon {{ "chat/input_record", storiesComposeGrayIcon }};
+storiesRecordRound: icon {{ "chat/input_video", storiesComposeGrayIcon }};
+storiesRecordRoundOver: icon {{ "chat/input_video", storiesComposeGrayIcon }};
 storiesRemoveSet: IconButton(stickerPanRemoveSet) {
 	icon: icon {{ "simple_close", storiesComposeGrayIcon }};
 	iconOver: icon {{ "simple_close", storiesComposeGrayIcon }};
@@ -606,6 +619,9 @@ storiesEmojiPan: EmojiPan(defaultEmojiPan) {
 	colorAllLabel: storiesColorAllLabel;
 	removeSet: storiesRemoveSet;
 	boxLabel: storiesBoxLabel;
+	about: FlatLabel(defaultEmojiPanAbout) {
+		textFg: storiesComposeGrayText;
+	}
 	icons: ComposeIcons {
 		settings: icon {{ "emoji/emoji_settings", storiesComposeGrayIcon }};
 
@@ -637,14 +653,13 @@ storiesEmojiPan: EmojiPan(defaultEmojiPan) {
 		menuWhenOnline: icon {{ "menu/send_when_online", storiesComposeWhiteText }};
 		menuSpoiler: icon {{ "menu/spoiler_on", storiesComposeWhiteText }};
 		menuSpoilerOff: icon {{ "menu/spoiler_off", storiesComposeWhiteText }};
+		menuBelow: icon {{ "menu/link_below", storiesComposeWhiteText }};
+		menuAbove: icon {{ "menu/link_above", storiesComposeWhiteText }};
+		menuPrice: icon {{ "menu/earn", storiesComposeWhiteText }};
 
 		stripBubble: icon{
 			{ "chat/reactions_bubble_shadow", windowShadowFg },
 			{ "chat/reactions_bubble", storiesComposeBg },
-		};
-		stripPremiumLocked: icon{
-			{ "chat/reactions_premium_bg", storiesComposeBgRipple },
-			{ "chat/reactions_premium_star", storiesComposeGrayIcon },
 		};
 		stripExpandPanel: icon{
 			{ "chat/reactions_round_big", storiesComposeBgRipple },
@@ -684,6 +699,8 @@ storiesComposeControls: ComposeControls(defaultComposeControls) {
 		}
 		record: storiesRecordVoice;
 		recordOver: storiesRecordVoiceOver;
+		round: storiesRecordRound;
+		roundOver: storiesRecordRoundOver;
 		sendDisabledFg: storiesComposeGrayText;
 	}
 	attach: storiesAttach;
@@ -780,6 +797,34 @@ storiesComposeControls: ComposeControls(defaultComposeControls) {
 
 		menu: storiesPopupMenu;
 	}
+	restrictionLabel: FlatLabel(defaultFlatLabel) {
+		minWidth: 12px;
+		textFg: storiesComposeGrayText;
+		align: align(top);
+	}
+	premiumRequired: ComposePremiumRequired {
+		label: FlatLabel(defaultFlatLabel) {
+			minWidth: 12px;
+			textFg: storiesComposeGrayText;
+		}
+		button: RoundButton(defaultActiveButton) {
+			textFg: storiesComposeWhiteText;
+			textFgOver: storiesComposeWhiteText;
+			textBg: groupCallMembersBgRipple;
+			textBgOver: groupCallMembersBgRipple;
+			width: -12px;
+			height: 18px;
+			textTop: 0px;
+			style: TextStyle(defaultTextStyle) {
+				font: font(12px);
+			}
+			ripple: storiesComposeRipple;
+		}
+		buttonSkip: 6px;
+		buttonTop: 14px;
+		position: point(37px, 14px);
+		icon: icon{{ "emoji/premium_lock", storiesComposeGrayIcon, point(13px, 14px) }};
+	}
 }
 storiesViewsMenu: PopupMenu(storiesPopupMenuWithIcons) {
 	scrollPadding: margins(0px, 6px, 0px, 4px);
@@ -821,8 +866,6 @@ storiesUnsupportedLabel: FlatLabel(defaultFlatLabel) {
 	textFg: mediaviewControlFg;
 	style: TextStyle(defaultTextStyle) {
 		font: font(14px);
-		linkFont: font(14px);
-		linkFontOver: font(14px underline);
 		lineHeight: 21px;
 	}
 	align: align(top);
@@ -860,11 +903,21 @@ storiesReportBox: ReportBox(defaultReportBox) {
 		textBgOver: storiesComposeBgOver;
 		ripple: storiesComposeRipple;
 	}
+	noIconButton: SettingsButton(reportReasonButton) {
+		textFg: storiesComposeWhiteText;
+		textFgOver: storiesComposeWhiteText;
+		textBg: storiesComposeBg;
+		textBgOver: storiesComposeBgOver;
+		padding: margins(22px, 7px, 8px, 7px);
+		ripple: storiesComposeRipple;
+	}
 	label: storiesBoxLabel;
 	field: InputField(storiesBoxInputField) {
 		textMargins: margins(1px, 26px, 1px, 4px);
 		heightMax: 116px;
 	}
+	dividerBg: groupCallBg;
+	dividerFg: groupCallVideoSubTextFg;
 	spam: icon {{ "menu/delete", storiesComposeWhiteText }};
 	fake: icon {{ "menu/fake", storiesComposeWhiteText }};
 	violence: icon {{ "menu/violence", storiesComposeWhiteText }};
@@ -937,7 +990,7 @@ storiesStealthBox: Box(defaultBox) {
 	button: RoundButton(defaultBoxButton) {
 		height: 42px;
 		textTop: 12px;
-		font: font(13px semibold);
+		style: semiboldTextStyle;
 
 		textFg: storiesComposeWhiteText;
 		textFgOver: storiesComposeWhiteText;
@@ -1017,6 +1070,24 @@ storiesLikesEmptyRightSkip: 2px;
 
 storiesLikeCountStyle: TextStyle(defaultTextStyle) {
 	font: font(32px semibold);
-	linkFont: font(32px semibold);
-	linkFontOver: font(32px semibold underline);
+}
+storiesChangelogFooterWidthMin: 240px;
+
+storiesRepostSimpleStyle: QuoteStyle(defaultQuoteStyle) {
+	padding: margins(8px, 2px, 8px, 2px);
+	verticalSkip: 4px;
+	outline: 0px;
+	radius: 10px;
+}
+storiesRepostIcon: icon {{ "mediaview/mini_repost", windowFg }};
+storiesRepostIconPadding: margins(0px, 4px, 2px, 0px);
+storiesRepostUserpicPadding: margins(0px, 1px, 4px, 0px);
+
+mediaviewSponsoredButton: RoundButton(defaultActiveButton) {
+	textFg: mediaviewPlaybackIconFg;
+	textFgOver: mediaviewPlaybackIconFg;
+	textBg: mediaviewSaveMsgBg;
+	textBgOver: mediaviewSaveMsgBg;
+
+	ripple: universalRippleAnimation;
 }

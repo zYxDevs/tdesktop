@@ -7,7 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "boxes/abstract_box.h"
+#include "ui/layers/box_content.h"
 
 class PeerData;
 
@@ -38,6 +38,7 @@ private:
 		const Data::WallPaper &paper) const;
 	void removePaper(const Data::WallPaper &paper);
 	void resetForPeer();
+	[[nodiscard]] bool forChannel() const;
 
 	void chooseFromFile();
 

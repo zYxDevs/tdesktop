@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/win/windows_autostart_task.h"
 #include "base/platform/base_platform_info.h"
 #include "base/platform/win/base_windows_co_task_mem.h"
+#include "base/platform/win/base_windows_shlobj_h.h"
 #include "base/platform/win/base_windows_winrt.h"
 #include "base/call_delayed.h"
 #include "ui/boxes/confirm_box.h"
@@ -28,7 +29,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QOperatingSystemVersion>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QDesktopWidget>
 #include <QtGui/QDesktopServices>
 #include <QtGui/QWindow>
 
@@ -41,7 +41,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <openssl/err.h>
 
 #include <dbghelp.h>
-#include <shlobj.h>
 #include <Shlwapi.h>
 #include <Strsafe.h>
 #include <Windowsx.h>
@@ -58,6 +57,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <intsafe.h>
 #include <guiddef.h>
 #include <locale.h>
+
+#include <ShellScalingApi.h>
 
 #ifndef DCX_USESTYLE
 #define DCX_USESTYLE 0x00010000
@@ -99,7 +100,6 @@ BOOL CALLBACK FindToActivate(HWND hwnd, LPARAM lParam) {
 		return TRUE;
 	}
 	// Found a Top-Level window.
-	auto level = 0;
 	if (WindowIdFromHWND(hwnd) == request->windowId) {
 		request->result = hwnd;
 		request->resultLevel = 3;
@@ -195,8 +195,7 @@ bool ManageAppLink(
 		return true;
 	}
 	const auto shellLink = base::WinRT::TryCreateInstance<IShellLink>(
-		CLSID_ShellLink,
-		CLSCTX_INPROC_SERVER);
+		CLSID_ShellLink);
 	if (!shellLink) {
 		if (!silent) LOG(("App Error: could not create instance of IID_IShellLink %1").arg(hr));
 		return false;
@@ -312,8 +311,8 @@ void psDoFixPrevious() {
 		if (oldKeyRes2 == ERROR_SUCCESS) RegCloseKey(oldKey2);
 
 		if (existNew1 || existNew2) {
-			const auto deleteKeyRes1 = existOld1 ? RegDeleteKey(HKEY_LOCAL_MACHINE, oldKeyStr1.c_str()) : ERROR_SUCCESS;
-			const auto deleteKeyRes2 = existOld2 ? RegDeleteKey(HKEY_LOCAL_MACHINE, oldKeyStr2.c_str()) : ERROR_SUCCESS;
+			if (existOld1) RegDeleteKey(HKEY_LOCAL_MACHINE, oldKeyStr1.c_str());
+			if (existOld2) RegDeleteKey(HKEY_LOCAL_MACHINE, oldKeyStr2.c_str());
 		}
 
 		QString userDesktopLnk, commonDesktopLnk;
@@ -328,7 +327,7 @@ void psDoFixPrevious() {
 		}
 		QFile userDesktopFile(userDesktopLnk), commonDesktopFile(commonDesktopLnk);
 		if (QFile::exists(userDesktopLnk) && QFile::exists(commonDesktopLnk) && userDesktopLnk != commonDesktopLnk) {
-			bool removed = QFile::remove(commonDesktopLnk);
+			QFile::remove(commonDesktopLnk);
 		}
 	} catch (...) {
 	}
@@ -698,3 +697,18 @@ bool psLaunchMaps(const Data::LocationPoint &point) {
 	return QDesktopServices::openUrl(
 		url.arg(point.latAsString()).arg(point.lonAsString()));
 }
+
+// Stub while we still support Windows 7.
+extern "C" {
+
+STDAPI GetDpiForMonitor(
+		_In_ HMONITOR hmonitor,
+		_In_ MONITOR_DPI_TYPE dpiType,
+		_Out_ UINT *dpiX,
+		_Out_ UINT *dpiY) {
+	return Dlls::GetDpiForMonitor
+		? Dlls::GetDpiForMonitor(hmonitor, dpiType, dpiX, dpiY)
+		: E_FAIL;
+}
+
+} // extern "C"

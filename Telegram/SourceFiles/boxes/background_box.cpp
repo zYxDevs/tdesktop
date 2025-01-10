@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/attach/attach_extensions.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/ui_utility.h"
+#include "ui/vertical_list.h"
 #include "main/main_session.h"
 #include "apiwrap.h"
 #include "mtproto/sender.h"
@@ -24,7 +25,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document_media.h"
 #include "boxes/background_preview_box.h"
 #include "info/profile/info_profile_icon.h"
-#include "settings/settings_common.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/widgets/buttons.h"
 #include "window/window_session_controller.h"
@@ -40,11 +40,11 @@ namespace {
 constexpr auto kBackgroundsInRow = 3;
 
 QImage TakeMiddleSample(QImage original, QSize size) {
-	size *= cIntRetinaFactor();
+	size *= style::DevicePixelRatio();
 	const auto from = original.size();
 	if (from.isEmpty()) {
 		auto result = original.scaled(size);
-		result.setDevicePixelRatio(cRetinaFactor());
+		result.setDevicePixelRatio(style::DevicePixelRatio());
 		return result;
 	}
 
@@ -58,7 +58,7 @@ QImage TakeMiddleSample(QImage original, QSize size) {
 		take.width(),
 		take.height()
 	).scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-	result.setDevicePixelRatio(cRetinaFactor());
+	result.setDevicePixelRatio(style::DevicePixelRatio());
 	return result;
 }
 
@@ -129,6 +129,8 @@ private:
 		int row) const;
 	void validatePaperThumbnail(const Paper &paper) const;
 
+	[[nodiscard]] bool forChannel() const;
+
 	const not_null<Main::Session*> _session;
 	PeerData * const _forPeer = nullptr;
 
@@ -165,9 +167,9 @@ void BackgroundBox::prepare() {
 	auto wrap = object_ptr<Ui::VerticalLayout>(this);
 	const auto container = wrap.data();
 
-	Settings::AddSkip(container);
+	Ui::AddSkip(container);
 
-	const auto button = container->add(Settings::CreateButton(
+	const auto button = container->add(object_ptr<Ui::SettingsButton>(
 		container,
 		tr::lng_settings_bg_from_file(),
 		st::infoProfileButton));
@@ -176,12 +178,29 @@ void BackgroundBox::prepare() {
 		st::infoIconMediaPhoto,
 		st::infoSharedMediaButtonIconPosition);
 
+	if (forChannel() && _forPeer->wallPaper()) {
+		const auto remove = container->add(object_ptr<Ui::SettingsButton>(
+			container,
+			tr::lng_settings_bg_remove(),
+			st::infoBlockButton));
+		object_ptr<Info::Profile::FloatingIcon>(
+			remove,
+			st::infoIconDeleteRed,
+			st::infoSharedMediaButtonIconPosition);
+
+		remove->setClickedCallback([=] {
+			if (const auto resolved = _inner->resolveResetCustomPaper()) {
+				chosen(*resolved);
+			}
+		});
+	}
+
 	button->setClickedCallback([=] {
 		chooseFromFile();
 	});
 
-	Settings::AddSkip(container);
-	Settings::AddDivider(container);
+	Ui::AddSkip(container);
+	Ui::AddDivider(container);
 
 	_inner = container->add(
 		object_ptr<Inner>(this, &_controller->session(), _forPeer));
@@ -290,6 +309,23 @@ void BackgroundBox::chosen(const Data::WallPaper &paper) {
 			closeBox();
 		}
 		return;
+	} else if (forChannel()) {
+		if (_forPeer->wallPaper() && _forPeer->wallPaper()->equals(paper)) {
+			closeBox();
+			return;
+		}
+		const auto &themes = _forPeer->owner().cloudThemes();
+		for (const auto &theme : themes.chatThemes()) {
+			for (const auto &[type, themed] : theme.settings) {
+				if (themed.paper && themed.paper->equals(paper)) {
+					_controller->show(Box<BackgroundPreviewBox>(
+						_controller,
+						Data::WallPaper::FromEmojiId(theme.emoticon),
+						BackgroundPreviewArgs{ _forPeer }));
+					return;
+				}
+			}
+		}
 	}
 	_controller->show(Box<BackgroundPreviewBox>(
 		_controller,
@@ -310,10 +346,14 @@ void BackgroundBox::resetForPeer() {
 	}).send();
 
 	const auto weak = Ui::MakeWeak(this);
-	_forPeer->setWallPaper(std::nullopt);
+	_forPeer->setWallPaper({});
 	if (weak) {
 		_controller->finishChatThemeEdit(_forPeer);
 	}
+}
+
+bool BackgroundBox::forChannel() const {
+	return _forPeer && _forPeer->isChannel();
 }
 
 void BackgroundBox::removePaper(const Data::WallPaper &paper) {
@@ -345,9 +385,16 @@ BackgroundBox::Inner::Inner(
 , _session(session)
 , _forPeer(forPeer)
 , _api(&_session->mtp())
-, _check(std::make_unique<Ui::RoundCheckbox>(st::overviewCheck, [=] { update(); })) {
+, _check(
+	std::make_unique<Ui::RoundCheckbox>(
+		st::overviewCheck,
+		[=] { update(); })) {
 	_check->setChecked(true, anim::type::instant);
-	resize(st::boxWideWidth, 2 * (st::backgroundSize.height() + st::backgroundPadding) + st::backgroundPadding);
+	resize(
+		st::boxWideWidth,
+		(2 * (st::backgroundSize.height() + st::backgroundPadding)
+			+ st::backgroundPadding));
+
 	Window::Theme::IsNightModeValue(
 	) | rpl::start_with_next([=] {
 		updatePapers();
@@ -364,21 +411,31 @@ BackgroundBox::Inner::Inner(
 		_check->invalidateCache();
 	}, lifetime());
 
-	using Update = Window::Theme::BackgroundUpdate;
-	Window::Theme::Background()->updates(
-	) | rpl::start_with_next([=](const Update &update) {
-		if (update.type == Update::Type::New) {
-			sortPapers();
-			requestPapers();
-			this->update();
-		}
-	}, lifetime());
-
+	if (forChannel()) {
+		_session->data().cloudThemes().chatThemesUpdated(
+		) | rpl::start_with_next([=] {
+			updatePapers();
+		}, lifetime());
+	} else {
+		using Update = Window::Theme::BackgroundUpdate;
+		Window::Theme::Background()->updates(
+		) | rpl::start_with_next([=](const Update &update) {
+			if (update.type == Update::Type::New) {
+				sortPapers();
+				requestPapers();
+				this->update();
+			}
+		}, lifetime());
+	}
 
 	setMouseTracking(true);
 }
 
 void BackgroundBox::Inner::requestPapers() {
+	if (forChannel()) {
+		_session->data().cloudThemes().refreshChatThemes();
+		return;
+	}
 	_api.request(MTPaccount_GetWallPapers(
 		MTP_long(_session->data().wallpapersHash())
 	)).done([=](const MTPaccount_WallPapers &result) {
@@ -395,7 +452,7 @@ auto BackgroundBox::Inner::resolveResetCustomPaper() const
 	}
 	const auto nonCustom = Window::Theme::Background()->paper();
 	const auto themeEmoji = _forPeer->themeEmoji();
-	if (themeEmoji.isEmpty()) {
+	if (forChannel() || themeEmoji.isEmpty()) {
 		return nonCustom;
 	}
 	const auto &themes = _forPeer->owner().cloudThemes();
@@ -443,6 +500,8 @@ void BackgroundBox::Inner::pushCustomPapers() {
 }
 
 void BackgroundBox::Inner::sortPapers() {
+	Expects(!forChannel());
+
 	const auto currentCustom = _forPeer ? _forPeer->wallPaper() : nullptr;
 	_currentId = currentCustom
 		? currentCustom->id()
@@ -472,23 +531,60 @@ void BackgroundBox::Inner::sortPapers() {
 }
 
 void BackgroundBox::Inner::updatePapers() {
-	if (_session->data().wallpapers().empty()) {
-		return;
+	if (forChannel()) {
+		if (_session->data().cloudThemes().chatThemes().empty()) {
+			return;
+		}
+	} else {
+		if (_session->data().wallpapers().empty()) {
+			return;
+		}
 	}
 	_over = _overDown = Selection();
 
-	_papers = _session->data().wallpapers(
-	) | ranges::views::filter([&](const Data::WallPaper &paper) {
-		return (!paper.isPattern() || !paper.backgroundColors().empty())
-			&& (!_forPeer
-				|| (!Data::IsDefaultWallPaper(paper)
-					&& (Data::IsCloudWallPaper(paper)
-						|| Data::IsCustomWallPaper(paper))));
-	}) | ranges::views::transform([](const Data::WallPaper &paper) {
-		return Paper{ paper };
-	}) | ranges::to_vector;
-	pushCustomPapers();
-	sortPapers();
+	const auto was = base::take(_papers);
+	if (forChannel()) {
+		const auto now = _forPeer->wallPaper();
+		const auto &list = _session->data().cloudThemes().chatThemes();
+		if (list.empty()) {
+			return;
+		}
+		using Type = Data::CloudThemeType;
+		const auto type = Window::Theme::IsNightMode()
+			? Type::Dark
+			: Type::Light;
+		_papers.reserve(list.size() + 1);
+		const auto nowEmojiId = now ? now->emojiId() : QString();
+		if (!now || !now->emojiId().isEmpty()) {
+			_papers.push_back({ Window::Theme::Background()->paper() });
+			_currentId = _papers.back().data.id();
+		} else {
+			_papers.push_back({ *now });
+			_currentId = now->id();
+		}
+		for (const auto &theme : list) {
+			const auto i = theme.settings.find(type);
+			if (i != end(theme.settings) && i->second.paper) {
+				_papers.push_back({ *i->second.paper });
+				if (nowEmojiId == theme.emoticon) {
+					_currentId = _papers.back().data.id();
+				}
+			}
+		}
+	} else {
+		_papers = _session->data().wallpapers(
+		) | ranges::views::filter([&](const Data::WallPaper &paper) {
+			return (!paper.isPattern() || !paper.backgroundColors().empty())
+				&& (!_forPeer
+					|| (!Data::IsDefaultWallPaper(paper)
+						&& (Data::IsCloudWallPaper(paper)
+							|| Data::IsCustomWallPaper(paper))));
+		}) | ranges::views::transform([](const Data::WallPaper &paper) {
+			return Paper{ paper };
+		}) | ranges::to_vector;
+		pushCustomPapers();
+		sortPapers();
+	}
 	resizeToContentAndPreload();
 }
 
@@ -561,10 +657,10 @@ void BackgroundBox::Inner::validatePaperThumbnail(
 		} else if (!paper.data.backgroundColors().empty()) {
 			paper.thumbnail = Ui::PixmapFromImage(
 				Ui::GenerateBackgroundImage(
-					st::backgroundSize * cIntRetinaFactor(),
+					st::backgroundSize * style::DevicePixelRatio(),
 					paper.data.backgroundColors(),
 					paper.data.gradientRotation()));
-			paper.thumbnail.setDevicePixelRatio(cRetinaFactor());
+			paper.thumbnail.setDevicePixelRatio(style::DevicePixelRatio());
 			return;
 		} else {
 			return;
@@ -584,7 +680,11 @@ void BackgroundBox::Inner::validatePaperThumbnail(
 	paper.thumbnail = Ui::PixmapFromImage(TakeMiddleSample(
 		original,
 		st::backgroundSize));
-	paper.thumbnail.setDevicePixelRatio(cRetinaFactor());
+	paper.thumbnail.setDevicePixelRatio(style::DevicePixelRatio());
+}
+
+bool BackgroundBox::Inner::forChannel() const {
+	return _forPeer && _forPeer->isChannel();
 }
 
 void BackgroundBox::Inner::paintPaper(
@@ -604,7 +704,8 @@ void BackgroundBox::Inner::paintPaper(
 		const auto checkLeft = x + st::backgroundSize.width() - st::overviewCheckSkip - st::overviewCheck.size;
 		const auto checkTop = y + st::backgroundSize.height() - st::overviewCheckSkip - st::overviewCheck.size;
 		_check->paint(p, checkLeft, checkTop, width());
-	} else if (Data::IsCloudWallPaper(paper.data)
+	} else if (!forChannel()
+		&& Data::IsCloudWallPaper(paper.data)
 		&& !Data::IsDefaultWallPaper(paper.data)
 		&& !Data::IsLegacy2DefaultWallPaper(paper.data)
 		&& !Data::IsLegacy3DefaultWallPaper(paper.data)
@@ -642,7 +743,8 @@ void BackgroundBox::Inner::mouseMoveEvent(QMouseEvent *e) {
 			- st::stickerPanDeleteIconBg.width();
 		const auto deleteBottom = row * (height + skip) + skip
 			+ st::stickerPanDeleteIconBg.height();
-		const auto inDelete = (x >= deleteLeft)
+		const auto inDelete = !forChannel()
+			&& (x >= deleteLeft)
 			&& (y < deleteBottom)
 			&& Data::IsCloudWallPaper(data)
 			&& !Data::IsDefaultWallPaper(data)

@@ -146,9 +146,9 @@ using Platform::Q2NSImage;
 
 NSImage *CreateNSImageFromEmoji(EmojiPtr emoji) {
 	auto image = QImage(
-		QSize(kIdealIconSize, kIdealIconSize) * cIntRetinaFactor(),
+		QSize(kIdealIconSize, kIdealIconSize) * style::DevicePixelRatio(),
 		QImage::Format_ARGB32_Premultiplied);
-	image.setDevicePixelRatio(cRetinaFactor());
+	image.setDevicePixelRatio(style::DevicePixelRatio());
 	image.fill(Qt::black);
 	{
 		Painter paint(&image);
@@ -185,7 +185,9 @@ std::optional<QString> RestrictionToSend(
 		not_null<Window::Controller*> controller,
 		ChatRestriction right) {
 	if (const auto peer = ActiveChat(controller).peer()) {
-		return Data::RestrictionError(peer, right);
+		if (const auto error = Data::RestrictionError(peer, right)) {
+			return *error;
+		}
 	}
 	return std::nullopt;
 }

@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/attach/attach_abstract_single_preview.h"
 #include "ui/chat/attach/attach_controls.h"
 #include "ui/chat/attach/attach_send_files_way.h"
+#include "ui/effects/spoiler_mess.h"
 #include "ui/abstract_button.h"
 
 namespace style {
@@ -25,7 +26,8 @@ public:
 	AbstractSingleMediaPreview(
 		QWidget *parent,
 		const style::ComposeControls &st,
-		AttachControls::Type type);
+		AttachControls::Type type,
+		Fn<bool()> canToggleSpoiler);
 	~AbstractSingleMediaPreview();
 
 	void setSendWay(SendFilesWay way);
@@ -40,6 +42,9 @@ public:
 	void setSpoiler(bool spoiler);
 	[[nodiscard]] bool hasSpoiler() const;
 	[[nodiscard]] bool canHaveSpoiler() const;
+	[[nodiscard]] rpl::producer<bool> spoileredChanges() const;
+
+	[[nodiscard]] QImage generatePriceTagBackground() const;
 
 protected:
 	virtual bool supportsSpoilers() const = 0;
@@ -69,6 +74,7 @@ private:
 
 	const style::ComposeControls &_st;
 	SendFilesWay _sendWay;
+	Fn<bool()> _canToggleSpoiler;
 	bool _animated = false;
 	QPixmap _preview;
 	QPixmap _previewBlurred;
@@ -78,6 +84,7 @@ private:
 	int _previewHeight = 0;
 
 	std::unique_ptr<SpoilerAnimation> _spoiler;
+	rpl::event_stream<bool> _spoileredChanges;
 
 	const int _minThumbH;
 	const base::unique_qptr<AttachControlsWidget> _controls;

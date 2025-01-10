@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "intro/intro_qr.h"
 
+#include "boxes/abstract_box.h"
 #include "intro/intro_phone.h"
 #include "intro/intro_widget.h"
 #include "intro/intro_password_check.h"
@@ -118,7 +119,7 @@ namespace {
 			1,
 			st::introQrPixel);
 		const auto size = has
-			? (state->qr.size() / cIntRetinaFactor())
+			? (state->qr.size() / style::DevicePixelRatio())
 			: QSize(usualSize * pixel, usualSize * pixel);
 		const auto qr = QRect(
 			(result->width() - size.width()) / 2,

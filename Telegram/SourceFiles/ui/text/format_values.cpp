@@ -146,8 +146,11 @@ QString FillAmountAndCurrency(
 	// std::abs doesn't work on that one :/
 	Expects(amount != std::numeric_limits<int64>::min());
 
-	const auto rule = LookupCurrencyRule(currency);
+	if (currency == kCreditsCurrency) {
+		return QChar(0x2B50) + Lang::FormatCountDecimal(std::abs(amount));
+	}
 
+	const auto rule = LookupCurrencyRule(currency);
 	const auto prefix = (amount < 0)
 		? QString::fromUtf8("\xe2\x88\x92")
 		: QString();
@@ -188,45 +191,52 @@ CurrencyRule LookupCurrencyRule(const QString &currency) {
 		{ u"BAM"_q, { "", '.', ',', false, true } },
 		{ u"BDT"_q, { "", ',', '.', true, true } },
 		{ u"BGN"_q, { "", ' ', ',', false, true } },
-		{ u"BND"_q, { "", '.', ',', } },
+		{ u"BHD"_q, { "", ',', '.', true, true, 3 } },
+		{ u"BND"_q, { "", '.', ',' } },
 		{ u"BOB"_q, { "", '.', ',', true, true } },
 		{ u"BRL"_q, { "R$", '.', ',', true, true } },
-		{ u"BHD"_q, { "", ',', '.', true, true, 3 } },
-		{ u"BYR"_q, { "", ' ', ',', false, true, 0 } },
+		{ u"BYN"_q, { "", ' ', ',', false, true } },
 		{ u"CAD"_q, { "CA$" } },
 		{ u"CHF"_q, { "", '\'', '.', false, true } },
 		{ u"CLP"_q, { "", '.', ',', true, true, 0 } },
 		{ u"CNY"_q, { "\x43\x4E\xC2\xA5" } },
 		{ u"COP"_q, { "", '.', ',', true, true } },
-		{ u"CRC"_q, { "", '.', ',', } },
+		{ u"CRC"_q, { "", '.', ',' } },
 		{ u"CZK"_q, { "", ' ', ',', false, true } },
 		{ u"DKK"_q, { "", '\0', ',', false, true } },
 		{ u"DOP"_q, {} },
 		{ u"DZD"_q, { "", ',', '.', true, true } },
 		{ u"EGP"_q, { "", ',', '.', true, true } },
+		{ u"ETB"_q, {} },
 		{ u"EUR"_q, { "\xE2\x82\xAC", ' ', ',', false, true } },
 		{ u"GBP"_q, { "\xC2\xA3" } },
 		{ u"GEL"_q, { "", ' ', ',', false, true } },
+		{ u"GHS"_q, {} },
 		{ u"GTQ"_q, {} },
 		{ u"HKD"_q, { "HK$" } },
 		{ u"HNL"_q, { "", ',', '.', true, true } },
 		{ u"HRK"_q, { "", '.', ',', false, true } },
 		{ u"HUF"_q, { "", ' ', ',', false, true } },
-		{ u"IDR"_q, { "", '.', ',', } },
+		{ u"IDR"_q, { "", '.', ',' } },
 		{ u"ILS"_q, { "\xE2\x82\xAA", ',', '.', true, true } },
 		{ u"INR"_q, { "\xE2\x82\xB9" } },
+		{ u"IQD"_q, { "", ',', '.', true, true, 3 } },
+		{ u"IRR"_q, { "", ',', '/', false, true } },
 		{ u"ISK"_q, { "", '.', ',', false, true, 0 } },
 		{ u"JMD"_q, {} },
+		{ u"JOD"_q, { "", ',', '.', true, false, 3 } },
 		{ u"JPY"_q, { "\xC2\xA5", ',', '.', true, false, 0 } },
 		{ u"KES"_q, {} },
 		{ u"KGS"_q, { "", ' ', '-', false, true } },
 		{ u"KRW"_q, { "\xE2\x82\xA9", ',', '.', true, false, 0 } },
-		{ u"KZT"_q, { "", ' ', '-', } },
+		{ u"KZT"_q, { "", ' ', '-' } },
 		{ u"LBP"_q, { "", ',', '.', true, true } },
 		{ u"LKR"_q, { "", ',', '.', true, true } },
 		{ u"MAD"_q, { "", ',', '.', true, true } },
 		{ u"MDL"_q, { "", ',', '.', false, true } },
-		{ u"MNT"_q, { "", ' ', ',', } },
+		{ u"MMK"_q, {} },
+		{ u"MNT"_q, { "", ' ', ',' } },
+		{ u"MOP"_q, {} },
 		{ u"MUR"_q, {} },
 		{ u"MVR"_q, { "", ',', '.', false, true } },
 		{ u"MXN"_q, { "MX$" } },
@@ -250,6 +260,7 @@ CurrencyRule LookupCurrencyRule(const QString &currency) {
 		{ u"SAR"_q, { "", ',', '.', true, true } },
 		{ u"SEK"_q, { "", '.', ',', false, true } },
 		{ u"SGD"_q, {} },
+		{ u"SYP"_q, { "", ',', '.', true, true } },
 		{ u"THB"_q, { "\xE0\xB8\xBF" } },
 		{ u"TJS"_q, { "", ' ', ';', false, true } },
 		{ u"TRY"_q, { "", '.', ',', false, true } },
@@ -261,13 +272,10 @@ CurrencyRule LookupCurrencyRule(const QString &currency) {
 		{ u"USD"_q, { "$" } },
 		{ u"UYU"_q, { "", '.', ',', true, true } },
 		{ u"UZS"_q, { "", ' ', ',', false, true } },
+		{ u"VEF"_q, { "", '.', ',', true, true } },
 		{ u"VND"_q, { "\xE2\x82\xAB", '.', ',', false, true, 0 } },
 		{ u"YER"_q, { "", ',', '.', true, true } },
 		{ u"ZAR"_q, { "", ',', '.', true, true } },
-		{ u"IRR"_q, { "", ',', '/', false, true, 2, true } },
-		{ u"IQD"_q, { "", ',', '.', true, true, 3 } },
-		{ u"VEF"_q, { "", '.', ',', true, true } },
-		{ u"SYP"_q, { "", ',', '.', true, true } },
 
 		//{ u"VUV"_q, { "", ',', '.', false, false, 0 } },
 		//{ u"WST"_q, {} },
@@ -300,7 +308,6 @@ CurrencyRule LookupCurrencyRule(const QString &currency) {
 		//{ u"CDF"_q, { "", ',', '.', false } },
 		//{ u"CVE"_q, { "", ',', '.', true, false, 0 } },
 		//{ u"DJF"_q, { "", ',', '.', false, false, 0 } },
-		//{ u"ETB"_q, {} },
 		//{ u"FJD"_q, {} },
 		//{ u"FKP"_q, {} },
 		//{ u"GIP"_q, {} },
@@ -316,11 +323,9 @@ CurrencyRule LookupCurrencyRule(const QString &currency) {
 		//{ u"LSL"_q, { "", ',', '.', false } },
 		//{ u"MGA"_q, { "", ',', '.', true, false, 0 } },
 		//{ u"MKD"_q, { "", '.', ',', false, true } },
-		//{ u"MOP"_q, {} },
 		//{ u"MWK"_q, {} },
 		//{ u"NAD"_q, {} },
 		//{ u"CLF"_q, { "", ',', '.', true, false, 4 } },
-		//{ u"JOD"_q, { "", ',', '.', true, false, 3 } },
 		//{ u"KWD"_q, { "", ',', '.', true, false, 3 } },
 		//{ u"LYD"_q, { "", ',', '.', true, false, 3 } },
 		//{ u"OMR"_q, { "", ',', '.', true, false, 3 } },
@@ -357,6 +362,7 @@ CurrencyRule LookupCurrencyRule(const QString &currency) {
 
 		char do_decimal_point() const override { return decimal; }
 		char do_thousands_sep() const override { return thousands; }
+		std::string do_grouping() const override { return "\3"; }
 
 		char decimal = '.';
 		char thousands = ',';
@@ -381,14 +387,17 @@ QString FormatImageSizeText(const QSize &size) {
 		+ QString::number(size.height());
 }
 
-QString FormatPhone(const QString &phone) {
+QString FormatPhone(QString phone) {
 	if (phone.isEmpty()) {
 		return QString();
 	}
 	if (phone.at(0) == '0') {
 		return phone;
 	}
-	return Countries::Instance().format({ .phone = phone }).formatted;
+	phone = phone.remove(QChar::Space);
+	return Countries::Instance().format({
+		.phone = (phone.at(0) == '+') ? phone.mid(1) : phone,
+	}).formatted;
 }
 
 QString FormatTTL(float64 ttl) {
@@ -478,6 +487,24 @@ QString FormatMuteForTiny(float64 sec) {
 
 QString FormatResetCloudPasswordIn(float64 sec) {
 	return (sec >= 3600) ? FormatTTL(sec) : FormatDurationText(sec);
+}
+
+QString FormatDialogsDate(const QDateTime &lastTime, bool showSeconds) {
+	// Show all dates that are in the last 20 hours in time format.
+	constexpr int kRecentlyInSeconds = 20 * 3600;
+
+	const auto now = QDateTime::currentDateTime();
+	const auto nowDate = now.date();
+	const auto lastDate = lastTime.date();
+
+	if ((lastDate == nowDate)
+		|| (std::abs(lastTime.secsTo(now)) < kRecentlyInSeconds)) {
+		return QLocale().toString(lastTime.time(), showSeconds ? QLocale::system().timeFormat(QLocale::LongFormat).remove("t") : QLocale::system().timeFormat(QLocale::ShortFormat));
+	} else if (std::abs(lastDate.daysTo(nowDate)) < 7) {
+		return langDayOfWeek(lastDate);
+	} else {
+		return QLocale().toString(lastDate, QLocale::ShortFormat);
+	}
 }
 
 } // namespace Ui

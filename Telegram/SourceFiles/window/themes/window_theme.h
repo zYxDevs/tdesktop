@@ -12,7 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/style/style_core_palette.h"
 
 class QFileSystemWatcher;
-struct SendMediaReady;
+struct FilePrepareResult;
 
 namespace style {
 struct colorizer;
@@ -28,6 +28,7 @@ class Controller;
 
 namespace Ui {
 struct ChatThemeBackground;
+class ChatTheme;
 } // namespace Ui
 
 namespace Webview {
@@ -297,7 +298,7 @@ private:
 
 };
 
-[[nodiscard]] SendMediaReady PrepareWallPaper(
+[[nodiscard]] std::shared_ptr<FilePrepareResult> PrepareWallPaper(
 	MTP::DcId dcId,
 	const QImage &image);
 
@@ -308,6 +309,9 @@ bool ReadPaletteValues(
 	Fn<bool(QLatin1String name, QLatin1String value)> callback);
 
 [[nodiscard]] Webview::ThemeParams WebViewParams();
+
+[[nodiscard]] std::unique_ptr<Ui::ChatTheme> DefaultChatThemeOn(
+	rpl::lifetime &lifetime);
 
 } // namespace Theme
 } // namespace Window

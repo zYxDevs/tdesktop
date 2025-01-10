@@ -88,10 +88,6 @@ PRIVATE
     v2/SignalingEncryption.h
     v2/SignalingSctpConnection.cpp
     v2/SignalingSctpConnection.h
-    v2_4_0_0/InstanceV2_4_0_0Impl.cpp
-    v2_4_0_0/InstanceV2_4_0_0Impl.h
-    v2_4_0_0/Signaling_4_0_0.cpp
-    v2_4_0_0/Signaling_4_0_0.h
 
     # Desktop capturer
     desktop_capturer/DesktopCaptureSource.h
@@ -138,20 +134,31 @@ PRIVATE
     # iOS / macOS
     platform/darwin/CustomSimulcastEncoderAdapter.cpp
     platform/darwin/CustomSimulcastEncoderAdapter.h
+    platform/darwin/DarwinFFMpeg.h
+    platform/darwin/DarwinFFMpeg.mm
     platform/darwin/DarwinInterface.h
     platform/darwin/DarwinInterface.mm
     platform/darwin/DarwinVideoSource.h
     platform/darwin/DarwinVideoSource.mm
     platform/darwin/DesktopSharingCapturer.h
     platform/darwin/DesktopSharingCapturer.mm
+    platform/darwin/ExtractCVPixelBuffer.h
+    platform/darwin/ExtractCVPixelBuffer.mm
     platform/darwin/GLVideoView.h
     platform/darwin/GLVideoView.mm
     platform/darwin/GLVideoViewMac.h
     platform/darwin/GLVideoViewMac.mm
+    platform/darwin/h265_nalu_rewriter.cc
+    platform/darwin/h265_nalu_rewriter.h
     platform/darwin/objc_video_encoder_factory.h
     platform/darwin/objc_video_encoder_factory.mm
     platform/darwin/objc_video_decoder_factory.h
     platform/darwin/objc_video_decoder_factory.mm
+    platform/darwin/RTCCodecSpecificInfoH265+Private.h
+    platform/darwin/RTCCodecSpecificInfoH265.h
+    platform/darwin/RTCCodecSpecificInfoH265.mm
+    platform/darwin/RTCH265ProfileLevelId.h
+    platform/darwin/RTCH265ProfileLevelId.mm
     platform/darwin/TGCMIOCapturer.h
     platform/darwin/TGCMIOCapturer.m
     platform/darwin/TGCMIODevice.h
@@ -214,6 +221,7 @@ PUBLIC
     TGCALLS_USE_STD_OPTIONAL
 PRIVATE
     WEBRTC_APP_TDESKTOP
+    RTC_ENABLE_H265
     RTC_ENABLE_VP9
 )
 
@@ -251,6 +259,7 @@ PRIVATE
     -Wno-ambiguous-reversed-operator
     -Wno-deprecated-declarations
     -Wno-unqualified-std-cast-call
+    -Wno-unused-function
 )
 
 remove_target_sources(lib_tgcalls ${tgcalls_loc}

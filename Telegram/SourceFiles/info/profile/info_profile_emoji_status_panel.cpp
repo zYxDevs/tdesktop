@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_emoji_status_panel.h"
 
+#include "api/api_peer_photo.h"
+#include "apiwrap.h"
 #include "data/data_user.h"
 #include "data/data_session.h"
 #include "data/data_document.h"
@@ -17,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/time_picker_box.h"
 #include "ui/effects/emoji_fly_animation.h"
 #include "ui/text/format_values.h"
+#include "ui/ui_utility.h"
 #include "base/unixtime.h"
 #include "boxes/premium_preview_box.h"
 #include "window/window_session_controller.h"
@@ -56,7 +59,16 @@ void PickUntilBox(not_null<Ui::GenericBox*> box, Fn<void(TimeId)> callback) {
 
 EmojiStatusPanel::EmojiStatusPanel() = default;
 
-EmojiStatusPanel::~EmojiStatusPanel() = default;
+EmojiStatusPanel::~EmojiStatusPanel() {
+	if (hasFocus()) {
+		// Panel will try to return focus to the layer widget, the problem is
+		// we are destroying the layer widget probably right now and focusing
+		// it will lead to a crash, because it destroys its children (how we
+		// got here) after it clears focus out of itself. So if you return
+		// the focus inside a child destructor, it won't be cleared at all.
+		_panel->window()->setFocus();
+	}
+}
 
 void EmojiStatusPanel::setChooseFilter(Fn<bool(DocumentId)> filter) {
 	_chooseFilter = std::move(filter);
@@ -66,26 +78,18 @@ void EmojiStatusPanel::show(
 		not_null<Window::SessionController*> controller,
 		not_null<QWidget*> button,
 		Data::CustomEmojiSizeTag animationSizeTag) {
-	const auto self = controller->session().user();
-	const auto &statuses = controller->session().data().emojiStatuses();
-	const auto &recent = statuses.list(Data::EmojiStatuses::Type::Recent);
-	const auto &other = statuses.list(Data::EmojiStatuses::Type::Default);
-	auto list = statuses.list(Data::EmojiStatuses::Type::Colored);
-	list.insert(begin(list), 0);
-	if (list.size() > kLimitFirstRow) {
-		list.erase(begin(list) + kLimitFirstRow, end(list));
-	}
-	list.reserve(list.size() + recent.size() + other.size() + 1);
-	for (const auto &id : ranges::views::concat(recent, other)) {
-		if (!ranges::contains(list, id)) {
-			list.push_back(id);
-		}
-	}
-	if (!ranges::contains(list, self->emojiStatusId())) {
-		list.push_back(self->emojiStatusId());
-	}
+	show({
+		.controller = controller,
+		.button = button,
+		.animationSizeTag = animationSizeTag,
+		.ensureAddedEmojiId = controller->session().user()->emojiStatusId(),
+	});
+}
+
+void EmojiStatusPanel::show(Descriptor &&descriptor) {
+	const auto controller = descriptor.controller;
 	if (!_panel) {
-		create(controller);
+		create(descriptor);
 
 		_panel->shownValue(
 		) | rpl::filter([=] {
@@ -98,21 +102,79 @@ void EmojiStatusPanel::show(
 			}
 		}, _panel->lifetime());
 	}
+	const auto button = descriptor.button;
 	if (const auto previous = _panelButton.data()) {
 		if (previous != button) {
 			previous->removeEventFilter(_panel.get());
 		}
 	}
 	_panelButton = button;
-	_animationSizeTag = animationSizeTag;
-	_panel->selector()->provideRecentEmoji(list);
+	_animationSizeTag = descriptor.animationSizeTag;
+	const auto feed = [=, now = descriptor.ensureAddedEmojiId](
+			std::vector<DocumentId> list) {
+		list.insert(begin(list), 0);
+		if (now && !ranges::contains(list, now)) {
+			list.push_back(now);
+		}
+		_panel->selector()->provideRecentEmoji(list);
+	};
+	if (descriptor.backgroundEmojiMode) {
+		controller->session().api().peerPhoto().emojiListValue(
+			Api::PeerPhoto::EmojiListType::Background
+		) | rpl::start_with_next([=](std::vector<DocumentId> &&list) {
+			feed(std::move(list));
+		}, _panel->lifetime());
+	} else if (descriptor.channelStatusMode) {
+		const auto &statuses = controller->session().data().emojiStatuses();
+		const auto &other = statuses.list(Data::EmojiStatuses::Type::ChannelDefault);
+		auto list = statuses.list(Data::EmojiStatuses::Type::ChannelColored);
+		if (list.size() > kLimitFirstRow - 1) {
+			list.erase(begin(list) + kLimitFirstRow - 1, end(list));
+		}
+		list.reserve(list.size() + other.size() + 1);
+		for (const auto &id : other) {
+			if (!ranges::contains(list, id)) {
+				list.push_back(id);
+			}
+		}
+		feed(std::move(list));
+	} else {
+		const auto &statuses = controller->session().data().emojiStatuses();
+		const auto &recent = statuses.list(Data::EmojiStatuses::Type::Recent);
+		const auto &other = statuses.list(Data::EmojiStatuses::Type::Default);
+		auto list = statuses.list(Data::EmojiStatuses::Type::Colored);
+		if (list.size() > kLimitFirstRow - 1) {
+			list.erase(begin(list) + kLimitFirstRow - 1, end(list));
+		}
+		list.reserve(list.size() + recent.size() + other.size() + 1);
+		for (const auto &id : ranges::views::concat(recent, other)) {
+			if (!ranges::contains(list, id)) {
+				list.push_back(id);
+			}
+		}
+		feed(std::move(list));
+	}
 	const auto parent = _panel->parentWidget();
 	const auto global = button->mapToGlobal(QPoint());
 	const auto local = parent->mapFromGlobal(global);
-	_panel->moveTopRight(
-		local.y() + button->height() - (st::normalFont->height / 2),
-		local.x() + button->width() * 3);
+	if (descriptor.backgroundEmojiMode || descriptor.channelStatusMode) {
+		_panel->moveBottomRight(
+			local.y() + (st::normalFont->height / 2),
+			local.x() + button->width() * 3);
+	} else {
+		_panel->moveTopRight(
+			local.y() + button->height() - (st::normalFont->height / 2),
+			local.x() + button->width() * 3);
+	}
 	_panel->toggleAnimated();
+}
+
+bool EmojiStatusPanel::hasFocus() const {
+	return _panel && Ui::InFocusChain(_panel.get());
+}
+
+void EmojiStatusPanel::repaint() {
+	_panel->selector()->update();
 }
 
 bool EmojiStatusPanel::paintBadgeFrame(not_null<Ui::RpWidget*> widget) {
@@ -125,19 +187,35 @@ bool EmojiStatusPanel::paintBadgeFrame(not_null<Ui::RpWidget*> widget) {
 	return false;
 }
 
-void EmojiStatusPanel::create(
-		not_null<Window::SessionController*> controller) {
+void EmojiStatusPanel::create(const Descriptor &descriptor) {
 	using Selector = ChatHelpers::TabbedSelector;
+	using Descriptor = ChatHelpers::TabbedSelectorDescriptor;
+	using Mode = ChatHelpers::TabbedSelector::Mode;
+	const auto controller = descriptor.controller;
 	const auto body = controller->window().widget()->bodyWidget();
 	_panel = base::make_unique_q<ChatHelpers::TabbedPanel>(
 		body,
 		controller,
 		object_ptr<Selector>(
 			nullptr,
-			controller->uiShow(),
-			Window::GifPauseReason::Layer,
-			ChatHelpers::TabbedSelector::Mode::EmojiStatus));
-	_panel->setDropDown(true);
+			Descriptor{
+				.show = controller->uiShow(),
+				.st = ((descriptor.backgroundEmojiMode
+					|| descriptor.channelStatusMode)
+					? st::backgroundEmojiPan
+					: st::statusEmojiPan),
+				.level = Window::GifPauseReason::Layer,
+				.mode = (descriptor.backgroundEmojiMode
+					? Mode::BackgroundEmoji
+					: descriptor.channelStatusMode
+					? Mode::ChannelStatus
+					: Mode::EmojiStatus),
+				.customTextColor = descriptor.customTextColor,
+			}));
+	_customTextColor = descriptor.customTextColor;
+	_backgroundEmojiMode = descriptor.backgroundEmojiMode;
+	_channelStatusMode = descriptor.channelStatusMode;
+	_panel->setDropDown(!_backgroundEmojiMode && !_channelStatusMode);
 	_panel->setDesiredHeightValues(
 		1.,
 		st::emojiPanMinHeight / 2,
@@ -152,7 +230,7 @@ void EmojiStatusPanel::create(
 
 	_panel->selector()->contextMenuRequested(
 	) | rpl::start_with_next([=] {
-		_panel->selector()->showMenuWithType(SendMenu::Type::Scheduled);
+		_panel->selector()->showMenuWithDetails({});
 	}, _panel->lifetime());
 
 	auto statusChosen = _panel->selector()->customEmojiChosen(
@@ -169,34 +247,46 @@ void EmojiStatusPanel::create(
 		return Chosen{ .animation = data.messageSendingFrom };
 	});
 
-	const auto weak = Ui::MakeWeak(_panel.get());
-	const auto accept = [=](Chosen chosen) {
-		Expects(chosen.until != Selector::kPickCustomTimeId);
-
-		// From PickUntilBox is called after EmojiStatusPanel is destroyed!
-		const auto owner = &controller->session().data();
-		if (weak) {
+	if (descriptor.backgroundEmojiMode || descriptor.channelStatusMode) {
+		rpl::merge(
+			std::move(statusChosen),
+			std::move(emojiChosen)
+		) | rpl::start_with_next([=](const Chosen &chosen) {
+			const auto owner = &controller->session().data();
 			startAnimation(owner, body, chosen.id, chosen.animation);
-		}
-		owner->emojiStatuses().set(chosen.id, chosen.until);
-	};
+			_someCustomChosen.fire({ chosen.id, chosen.until });
+			_panel->hideAnimated();
+		}, _panel->lifetime());
+	} else {
+		const auto weak = Ui::MakeWeak(_panel.get());
+		const auto accept = [=](Chosen chosen) {
+			Expects(chosen.until != Selector::kPickCustomTimeId);
 
-	rpl::merge(
-		std::move(statusChosen),
-		std::move(emojiChosen)
-	) | rpl::filter([=](const Chosen &chosen) {
-		return filter(controller, chosen.id);
-	}) | rpl::start_with_next([=](const Chosen &chosen) {
-		if (chosen.until == Selector::kPickCustomTimeId) {
-			_panel->hideAnimated();
-			controller->show(Box(PickUntilBox, [=](TimeId seconds) {
-				accept({ chosen.id, base::unixtime::now() + seconds });
-			}));
-		} else {
-			accept(chosen);
-			_panel->hideAnimated();
-		}
-	}, _panel->lifetime());
+			// PickUntilBox calls this after EmojiStatusPanel is destroyed!
+			const auto owner = &controller->session().data();
+			if (weak) {
+				startAnimation(owner, body, chosen.id, chosen.animation);
+			}
+			owner->emojiStatuses().set(chosen.id, chosen.until);
+		};
+
+		rpl::merge(
+			std::move(statusChosen),
+			std::move(emojiChosen)
+		) | rpl::filter([=](const Chosen &chosen) {
+			return filter(controller, chosen.id);
+		}) | rpl::start_with_next([=](const Chosen &chosen) {
+			if (chosen.until == Selector::kPickCustomTimeId) {
+				_panel->hideAnimated();
+				controller->show(Box(PickUntilBox, [=](TimeId seconds) {
+					accept({ chosen.id, base::unixtime::now() + seconds });
+				}));
+			} else {
+				accept(chosen);
+				_panel->hideAnimated();
+			}
+		}, _panel->lifetime());
+	}
 }
 
 bool EmojiStatusPanel::filter(
@@ -205,7 +295,7 @@ bool EmojiStatusPanel::filter(
 	if (_chooseFilter) {
 		return _chooseFilter(chosenId);
 	} else if (chosenId && !controller->session().premium()) {
-		ShowPremiumPreviewBox(controller, PremiumPreview::EmojiStatus);
+		ShowPremiumPreviewBox(controller, PremiumFeature::EmojiStatus);
 		return false;
 	}
 	return true;
@@ -223,13 +313,17 @@ void EmojiStatusPanel::startAnimation(
 		.id = { { statusId } },
 		.flyIcon = from.frame,
 		.flyFrom = body->mapFromGlobal(from.globalStartGeometry),
+		.forceFirstFrame = _backgroundEmojiMode,
 	};
+	const auto color = _customTextColor
+		? _customTextColor
+		: [] { return st::profileVerifiedCheckBg->c; };
 	_animation = std::make_unique<Ui::EmojiFlyAnimation>(
 		body,
 		&owner->reactions(),
 		std::move(args),
 		[=] { _animation->repaint(); },
-		[] { return st::profileVerifiedCheckBg->c; },
+		_customTextColor,
 		_animationSizeTag);
 }
 

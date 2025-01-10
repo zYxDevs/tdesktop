@@ -7,14 +7,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/empty_userpic.h"
 
-#include "ui/emoji_config.h"
+#include "info/channel_statistics/earn/earn_icons.h"
+#include "ui/chat/chat_style.h"
 #include "ui/effects/animation_value.h"
+#include "ui/emoji_config.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_widgets.h" // style::IconButton
 #include "styles/style_info.h" // st::topBarCall
+
+#include <QtSvg/QSvgRenderer>
 
 namespace Ui {
 namespace {
@@ -150,6 +154,50 @@ void PaintRepliesMessagesInner(
 		fg);
 }
 
+void PaintHiddenAuthorInner(
+		QPainter &p,
+		int x,
+		int y,
+		int size,
+		const style::color &fg) {
+	PaintIconInner(
+		p,
+		x,
+		y,
+		size,
+		st::defaultDialogRow.photoSize,
+		st::dialogsHiddenAuthorUserpic,
+		fg);
+}
+
+void PaintMyNotesInner(
+		QPainter &p,
+		int x,
+		int y,
+		int size,
+		const style::color &fg) {
+	PaintIconInner(
+		p,
+		x,
+		y,
+		size,
+		st::defaultDialogRow.photoSize,
+		st::dialogsMyNotesUserpic,
+		fg);
+}
+
+void PaintCurrencyInner(
+		QPainter &p,
+		int x,
+		int y,
+		int size,
+		const style::color &fg) {
+	auto svg = QSvgRenderer(Ui::Earn::CurrencySvgColored(fg->c));
+	const auto skip = size / 5;
+	svg.render(&p, QRect(x, y, size, size).marginsRemoved(
+		{ skip, skip, skip, skip }));
+}
+
 void PaintExternalMessagesInner(
 		QPainter &p,
 		int x,
@@ -221,13 +269,11 @@ QString EmptyUserpic::InaccessibleName() {
 	return QChar(0) + u"inaccessible"_q;
 }
 
-int EmptyUserpic::ColorIndex(uint64 id) {
-	const auto index = id % 7;
-	const int map[] = { 0, 7, 4, 1, 6, 3, 5 };
-	return map[index];
+uint8 EmptyUserpic::ColorIndex(uint64 id) {
+	return DecideColorIndex(id);
 }
 
-EmptyUserpic::BgColors EmptyUserpic::UserpicColor(int id) {
+EmptyUserpic::BgColors EmptyUserpic::UserpicColor(uint8 colorIndex) {
 	const EmptyUserpic::BgColors colors[] = {
 		{ st::historyPeer1UserpicBg, st::historyPeer1UserpicBg2 },
 		{ st::historyPeer2UserpicBg, st::historyPeer2UserpicBg2 },
@@ -238,7 +284,7 @@ EmptyUserpic::BgColors EmptyUserpic::UserpicColor(int id) {
 		{ st::historyPeer7UserpicBg, st::historyPeer7UserpicBg2 },
 		{ st::historyPeer8UserpicBg, st::historyPeer8UserpicBg2 },
 	};
-	return colors[id];
+	return colors[ColorIndexToPaletteIndex(colorIndex)];
 }
 
 void EmptyUserpic::paint(
@@ -398,6 +444,123 @@ QImage EmptyUserpic::GenerateRepliesMessages(int size) {
 	});
 }
 
+void EmptyUserpic::PaintHiddenAuthor(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size) {
+	auto bg = QLinearGradient(x, y, x, y + size);
+	bg.setStops({
+		{ 0., st::premiumButtonBg2->c },
+		{ 1., st::premiumButtonBg3->c },
+	});
+	const auto &fg = st::premiumButtonFg;
+	PaintHiddenAuthor(p, x, y, outerWidth, size, QBrush(bg), fg);
+}
+
+void EmptyUserpic::PaintHiddenAuthor(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size,
+		QBrush bg,
+		const style::color &fg) {
+	x = style::RightToLeft() ? (outerWidth - x - size) : x;
+
+	PainterHighQualityEnabler hq(p);
+	p.setBrush(bg);
+	p.setPen(Qt::NoPen);
+	p.drawEllipse(x, y, size, size);
+
+	PaintHiddenAuthorInner(p, x, y, size, fg);
+}
+
+QImage EmptyUserpic::GenerateHiddenAuthor(int size) {
+	return Generate(size, [&](QPainter &p) {
+		PaintHiddenAuthor(p, 0, 0, size, size);
+	});
+}
+
+void EmptyUserpic::PaintMyNotes(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size) {
+	auto bg = QLinearGradient(x, y, x, y + size);
+	bg.setStops({
+		{ 0., st::historyPeerSavedMessagesBg->c },
+		{ 1., st::historyPeerSavedMessagesBg2->c }
+	});
+	const auto &fg = st::historyPeerUserpicFg;
+	PaintMyNotes(p, x, y, outerWidth, size, QBrush(bg), fg);
+}
+
+void EmptyUserpic::PaintMyNotes(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size,
+		QBrush bg,
+		const style::color &fg) {
+	x = style::RightToLeft() ? (outerWidth - x - size) : x;
+
+	PainterHighQualityEnabler hq(p);
+	p.setBrush(bg);
+	p.setPen(Qt::NoPen);
+	p.drawEllipse(x, y, size, size);
+
+	PaintMyNotesInner(p, x, y, size, fg);
+}
+
+QImage EmptyUserpic::GenerateMyNotes(int size) {
+	return Generate(size, [&](QPainter &p) {
+		PaintMyNotes(p, 0, 0, size, size);
+	});
+}
+
+void EmptyUserpic::PaintCurrency(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size) {
+	auto bg = QLinearGradient(x, y, x, y + size);
+	bg.setStops({
+		{ 0., st::historyPeerSavedMessagesBg->c },
+		{ 1., st::historyPeerSavedMessagesBg2->c }
+	});
+	const auto &fg = st::historyPeerUserpicFg;
+	PaintCurrency(p, x, y, outerWidth, size, QBrush(bg), fg);
+}
+
+void EmptyUserpic::PaintCurrency(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size,
+		QBrush bg,
+		const style::color &fg) {
+	x = style::RightToLeft() ? (outerWidth - x - size) : x;
+
+	PainterHighQualityEnabler hq(p);
+	p.setBrush(bg);
+	p.setPen(Qt::NoPen);
+	p.drawEllipse(x, y, size, size);
+
+	PaintCurrencyInner(p, x, y, size, fg);
+}
+
+QImage EmptyUserpic::GenerateCurrency(int size) {
+	return Generate(size, [&](QPainter &p) {
+		PaintCurrency(p, 0, 0, size, size);
+	});
+}
+
 std::pair<uint64, uint64> EmptyUserpic::uniqueKey() const {
 	const auto first = (uint64(0xFFFFFFFFU) << 32)
 		| anim::getPremultiplied(_colors.color1->c);
@@ -444,7 +607,7 @@ void EmptyUserpic::fillString(const QString &name) {
 			}
 		} else if (!letterFound && ch->isLetterOrNumber()) {
 			letterFound = true;
-			if (ch + 1 != end && Ui::Text::IsDiac(*(ch + 1))) {
+			if (ch + 1 != end && Ui::Text::IsDiacritic(*(ch + 1))) {
 				letters.push_back(QString(ch, 2));
 				levels.push_back(level);
 				++ch;

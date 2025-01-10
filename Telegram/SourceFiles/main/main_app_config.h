@@ -10,6 +10,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/sender.h"
 #include "base/algorithm.h"
 
+namespace Ui {
+struct ColorIndicesCompressed;
+} // namespace Ui
+
 namespace Main {
 
 class Account;
@@ -17,6 +21,7 @@ class Account;
 class AppConfig final {
 public:
 	explicit AppConfig(not_null<Account*> account);
+	~AppConfig();
 
 	void start();
 
@@ -30,10 +35,11 @@ public:
 			return getString(key, fallback);
 		} else if constexpr (std::is_same_v<Type, std::vector<QString>>) {
 			return getStringArray(key, std::move(fallback));
-		} else if constexpr (std::is_same_v<
-				Type,
-				std::vector<std::map<QString, QString>>>) {
-			return getStringMapArray(key, std::move(fallback));
+		} else if constexpr (
+				std::is_same_v<Type, base::flat_map<QString, QString>>) {
+			return getStringMap(key, std::move(fallback));
+		} else if constexpr (std::is_same_v<Type, std::vector<int>>) {
+			return getIntArray(key, std::move(fallback));
 		} else if constexpr (std::is_same_v<Type, bool>) {
 			return getBool(key, fallback);
 		}
@@ -47,7 +53,26 @@ public:
 		const QString &key) const;
 	void dismissSuggestion(const QString &key);
 
-	void refresh();
+	[[nodiscard]] bool newRequirePremiumFree() const;
+
+	[[nodiscard]] auto ignoredRestrictionReasons() const
+		-> const std::vector<QString> & {
+		return _ignoreRestrictionReasons;
+	}
+	[[nodiscard]] auto ignoredRestrictionReasonsChanges() const {
+		return _ignoreRestrictionChanges.events();
+	}
+
+	[[nodiscard]] int quoteLengthMax() const;
+	[[nodiscard]] int stargiftConvertPeriodMax() const;
+
+	[[nodiscard]] const std::vector<QString> &startRefPrefixes();
+	[[nodiscard]] bool starrefSetupAllowed() const;
+	[[nodiscard]] bool starrefJoinAllowed() const;
+	[[nodiscard]] int starrefCommissionMin() const;
+	[[nodiscard]] int starrefCommissionMax() const;
+
+	void refresh(bool force = false);
 
 private:
 	void refreshDelayed();
@@ -69,17 +94,29 @@ private:
 	[[nodiscard]] std::vector<QString> getStringArray(
 		const QString &key,
 		std::vector<QString> &&fallback) const;
-	[[nodiscard]] std::vector<std::map<QString, QString>> getStringMapArray(
+	[[nodiscard]] base::flat_map<QString, QString> getStringMap(
 		const QString &key,
-		std::vector<std::map<QString, QString>> &&fallback) const;
+		base::flat_map<QString, QString> &&fallback) const;
+	[[nodiscard]] std::vector<int> getIntArray(
+		const QString &key,
+		std::vector<int> &&fallback) const;
+
+	void updateIgnoredRestrictionReasons(std::vector<QString> was);
 
 	const not_null<Account*> _account;
 	std::optional<MTP::Sender> _api;
 	mtpRequestId _requestId = 0;
 	int32 _hash = 0;
+	bool _pendingRefresh = false;
 	base::flat_map<QString, MTPJSONValue> _data;
 	rpl::event_stream<> _refreshed;
 	base::flat_set<QString> _dismissedSuggestions;
+
+	std::vector<QString> _ignoreRestrictionReasons;
+	rpl::event_stream<std::vector<QString>> _ignoreRestrictionChanges;
+
+	std::vector<QString> _startRefPrefixes;
+
 	rpl::lifetime _lifetime;
 
 };

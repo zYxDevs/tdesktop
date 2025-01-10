@@ -289,15 +289,15 @@ void GroupThumbs::Thumb::validateImage() {
 		const auto takeWidth = originalWidth * st::mediaviewGroupWidthMax
 			/ pixSize.width();
 		auto original = _image->original();
-		original.setDevicePixelRatio(cRetinaFactor());
+		original.setDevicePixelRatio(style::DevicePixelRatio());
 		_full = Ui::PixmapFromImage(original.copy(
 			(originalWidth - takeWidth) / 2,
 			0,
 			takeWidth,
 			originalHeight
 		).scaled(
-			st::mediaviewGroupWidthMax * cIntRetinaFactor(),
-			pixSize.height() * cIntRetinaFactor(),
+			st::mediaviewGroupWidthMax * style::DevicePixelRatio(),
+			pixSize.height() * style::DevicePixelRatio(),
 			Qt::IgnoreAspectRatio,
 			Qt::SmoothTransformation));
 	} else {
@@ -428,7 +428,7 @@ void GroupThumbs::Thumb::paint(
 	if (width == _fullWidth) {
 		p.drawPixmap(left, y, _full);
 	} else {
-		const auto takeWidth = width * cIntRetinaFactor();
+		const auto takeWidth = width * style::DevicePixelRatio();
 		const auto from = QRect(
 			(_full.width() - takeWidth) / 2,
 			0,
@@ -669,6 +669,11 @@ auto GroupThumbs::createThumb(Key key)
 							key,
 							page->collage,
 							collageKey->index);
+					} else if (const auto invoice = media->invoice()) {
+						return createThumb(
+							key,
+							*invoice,
+							collageKey->index);
 					}
 				}
 			}
@@ -691,6 +696,23 @@ auto GroupThumbs::createThumb(
 		return createThumb(key, (*photo));
 	} else if (const auto document = std::get_if<DocumentData*>(&item)) {
 		return createThumb(key, (*document));
+	}
+	return createThumb(key, nullptr);
+}
+
+auto GroupThumbs::createThumb(
+	Key key,
+	const Data::Invoice &invoice,
+	int index)
+-> std::unique_ptr<Thumb> {
+	if (index < 0 || index >= invoice.extendedMedia.size()) {
+		return createThumb(key, nullptr);
+	}
+	const auto &media = invoice.extendedMedia[index];
+	if (const auto photo = media->photo()) {
+		return createThumb(key, photo);
+	} else if (const auto document = media->document()) {
+		return createThumb(key, document);
 	}
 	return createThumb(key, nullptr);
 }

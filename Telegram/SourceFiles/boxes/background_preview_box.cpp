@@ -7,10 +7,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/background_preview_box.h"
 
+#include "base/unixtime.h"
+#include "boxes/peers/edit_peer_color_box.h"
+#include "boxes/premium_preview_box.h"
 #include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "window/themes/window_theme.h"
 #include "ui/boxes/confirm_box.h"
+#include "ui/boxes/boost_box.h"
 #include "ui/controls/chat_service_checkbox.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/chat/chat_style.h"
@@ -18,8 +22,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/continuous_sliders.h"
+#include "ui/wrap/fade_wrap.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/painter.h"
+#include "ui/vertical_list.h"
 #include "ui/ui_utility.h"
 #include "history/history.h"
 #include "history/history_item.h"
@@ -33,17 +39,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document_media.h"
 #include "data/data_document_resolver.h"
 #include "data/data_file_origin.h"
-#include "base/unixtime.h"
-#include "boxes/background_preview_box.h"
-#include "window/window_session_controller.h"
-#include "window/themes/window_themes_embedded.h"
-#include "settings/settings_common.h"
+#include "data/data_peer_values.h"
+#include "data/data_premium_limits.h"
+#include "settings/settings_premium.h"
 #include "storage/file_upload.h"
 #include "storage/localimageloader.h"
+#include "window/window_session_controller.h"
+#include "window/themes/window_themes_embedded.h"
 #include "styles/style_chat.h"
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
-#include "styles/style_settings.h"
 
 #include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
@@ -51,7 +56,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace {
 
 constexpr auto kMaxWallPaperSlugLength = 255;
-constexpr auto kDefaultDimming = 50;
 
 [[nodiscard]] bool IsValidWallPaperSlug(const QString &slug) {
 	if (slug.isEmpty() || slug.size() > kMaxWallPaperSlugLength) {
@@ -77,11 +81,11 @@ constexpr auto kDefaultDimming = 50;
 	const auto flags = MessageFlag::FakeHistoryItem
 		| MessageFlag::HasFromId
 		| (out ? MessageFlag::Outgoing : MessageFlag(0));
-	const auto item = history->makeMessage(
-		history->owner().nextLocalMessageId(),
-		flags,
-		base::unixtime::now(),
-		PreparedServiceText{ { text } });
+	const auto item = history->makeMessage({
+		.id = history->owner().nextLocalMessageId(),
+		.flags = flags,
+		.date = base::unixtime::now(),
+	}, PreparedServiceText{ { text } });
 	return AdminLog::OwnedItem(delegate, item);
 }
 
@@ -92,24 +96,16 @@ constexpr auto kDefaultDimming = 50;
 		bool out) {
 	Expects(history->peer->isUser());
 
-	const auto flags = MessageFlag::FakeHistoryItem
-		| MessageFlag::HasFromId
-		| (out ? MessageFlag::Outgoing : MessageFlag(0));
-	const auto replyTo = FullReplyTo();
-	const auto viaBotId = UserId();
-	const auto groupedId = uint64();
-	const auto item = history->makeMessage(
-		history->nextNonHistoryEntryId(),
-		flags,
-		replyTo,
-		viaBotId,
-		base::unixtime::now(),
-		out ? history->session().userId() : peerToUser(history->peer->id),
-		QString(),
-		TextWithEntities{ text },
-		MTP_messageMediaEmpty(),
-		HistoryMessageMarkupData(),
-		groupedId);
+	const auto item = history->makeMessage({
+		.id = history->nextNonHistoryEntryId(),
+		.flags = (MessageFlag::FakeHistoryItem
+			| MessageFlag::HasFromId
+			| (out ? MessageFlag::Outgoing : MessageFlag(0))),
+		.from = (out
+			? history->session().userId()
+			: peerToUser(history->peer->id)),
+		.date = base::unixtime::now(),
+	}, TextWithEntities{ text }, MTP_messageMediaEmpty());
 	return AdminLog::OwnedItem(delegate, item);
 }
 
@@ -157,6 +153,25 @@ constexpr auto kDefaultDimming = 50;
 	return result;
 }
 
+[[nodiscard]] Data::WallPaper Resolve(
+		not_null<Main::Session*> session,
+		const Data::WallPaper &paper,
+		bool dark) {
+	if (paper.emojiId().isEmpty()) {
+		return paper;
+	}
+	const auto &themes = session->data().cloudThemes();
+	if (const auto theme = themes.themeForEmoji(paper.emojiId())) {
+		using Type = Data::CloudThemeType;
+		const auto type = dark ? Type::Dark : Type::Light;
+		const auto i = theme->settings.find(type);
+		if (i != end(theme->settings) && i->second.paper) {
+			return *i->second.paper;
+		}
+	}
+	return paper;
+}
+
 } // namespace
 
 struct BackgroundPreviewBox::OverridenStyle {
@@ -175,7 +190,8 @@ BackgroundPreviewBox::BackgroundPreviewBox(
 , _controller(controller)
 , _forPeer(args.forPeer)
 , _fromMessageId(args.fromMessageId)
-, _chatStyle(std::make_unique<Ui::ChatStyle>())
+, _chatStyle(std::make_unique<Ui::ChatStyle>(
+	controller->session().colorIndicesValue()))
 , _serviceHistory(_controller->session().data().history(
 	PeerData::kServiceNotificationsId))
 , _service(nullptr)
@@ -193,15 +209,17 @@ BackgroundPreviewBox::BackgroundPreviewBox(
 		? tr::lng_background_apply2(tr::now)
 		: tr::lng_background_text2(tr::now)),
 	true))
-, _paper(paper)
+, _paperEmojiId(paper.emojiId())
+, _paper(
+	Resolve(&controller->session(), paper, Window::Theme::IsNightMode()))
 , _media(_paper.document() ? _paper.document()->createMediaView() : nullptr)
 , _radial([=](crl::time now) { radialAnimationCallback(now); })
 , _appNightMode(Window::Theme::IsNightModeValue())
 , _boxDarkMode(_appNightMode.current())
-, _dimmingIntensity(std::clamp(paper.patternIntensity(), 0, 100))
+, _dimmingIntensity(std::clamp(_paper.patternIntensity(), 0, 100))
 , _dimmed(_forPeer
-	&& (paper.document() || paper.localThumbnail())
-	&& !paper.isPattern()) {
+	&& (_paper.document() || _paper.localThumbnail())
+	&& !_paper.isPattern()) {
 	if (_media) {
 		_media->thumbnailWanted(_paper.fileOrigin());
 	}
@@ -241,7 +259,36 @@ BackgroundPreviewBox::BackgroundPreviewBox(
 
 BackgroundPreviewBox::~BackgroundPreviewBox() = default;
 
+void BackgroundPreviewBox::recreate(bool dark) {
+	_paper = Resolve(
+		&_controller->session(),
+		Data::WallPaper::FromEmojiId(_paperEmojiId),
+		dark);
+	_media = _paper.document()
+		? _paper.document()->createMediaView()
+		: nullptr;
+	if (_media) {
+		_media->thumbnailWanted(_paper.fileOrigin());
+	}
+	_full = QImage();
+	_generated = _scaled = _blurred = _fadeOutThumbnail = QPixmap();
+	_generating = {};
+	generateBackground();
+	_paper.loadDocument();
+	if (const auto document = _paper.document()) {
+		if (document->loading()) {
+			_radial.start(_media->progress());
+		}
+	}
+	checkLoadedDocument();
+	updateServiceBg(_paper.backgroundColors());
+	update();
+}
+
 void BackgroundPreviewBox::applyDarkMode(bool dark) {
+	if (!_paperEmojiId.isEmpty()) {
+		recreate(dark);
+	}
 	const auto equals = (dark == Window::Theme::IsNightMode());
 	const auto &palette = (dark ? _darkPalette : _lightPalette);
 	if (!equals && !palette) {
@@ -292,10 +339,10 @@ void BackgroundPreviewBox::createDimmingSlider(bool dark) {
 	const auto equals = (dark == Window::Theme::IsNightMode());
 	const auto inner = Ui::CreateChild<Ui::VerticalLayout>(_dimmingContent);
 	inner->show();
-	Settings::AddSubsectionTitle(
+	Ui::AddSubsectionTitle(
 		inner,
 		tr::lng_background_dimming(),
-		style::margins(0, st::settingsSectionSkip, 0, 0),
+		style::margins(0, st::defaultVerticalListSkip, 0, 0),
 		equals ? nullptr : dark ? &_dark->subtitle : &_light->subtitle);
 	_dimmingSlider = inner->add(
 		object_ptr<Ui::MediaSlider>(
@@ -377,7 +424,7 @@ auto BackgroundPreviewBox::prepareOverridenStyle(bool dark)
 		.box = st::defaultBox,
 		.toggle = toggle,
 		.slider = st::defaultContinuousSlider,
-		.subtitle = st::settingsSubsectionTitle,
+		.subtitle = st::defaultSubsectionTitle,
 	};
 	result.box.button.textFg = p->lightButtonFg();
 	result.box.button.textFgOver = p->lightButtonFgOver();
@@ -407,19 +454,27 @@ auto BackgroundPreviewBox::prepareOverridenStyle(bool dark)
 	return result;
 }
 
+bool BackgroundPreviewBox::forChannel() const {
+	return _forPeer && _forPeer->isChannel();
+}
+
+bool BackgroundPreviewBox::forGroup() const {
+	return forChannel() && _forPeer->isMegagroup();
+}
+
 void BackgroundPreviewBox::generateBackground() {
 	if (_paper.backgroundColors().empty()) {
 		return;
 	}
 	const auto size = QSize(st::boxWideWidth, st::boxWideWidth)
-		* cIntRetinaFactor();
+		* style::DevicePixelRatio();
 	_generated = Ui::PixmapFromImage((_paper.patternOpacity() >= 0.)
 		? Ui::GenerateBackgroundImage(
 			size,
 			_paper.backgroundColors(),
 			_paper.gradientRotation())
 		: BlackImage(size));
-	_generated.setDevicePixelRatio(cRetinaFactor());
+	_generated.setDevicePixelRatio(style::DevicePixelRatio());
 }
 
 not_null<HistoryView::ElementDelegate*> BackgroundPreviewBox::delegate() {
@@ -432,9 +487,13 @@ void BackgroundPreviewBox::resetTitle() {
 
 void BackgroundPreviewBox::rebuildButtons(bool dark) {
 	clearButtons();
-	addButton(_forPeer
+	addButton(forGroup()
+		? tr::lng_background_apply_group()
+		: forChannel()
+		? tr::lng_background_apply_channel()
+		: _forPeer
 		? tr::lng_background_apply_button()
-		: tr::lng_background_apply(), [=] { apply(); });
+		: tr::lng_settings_apply(), [=] { apply(); });
 	addButton(tr::lng_cancel(), [=] { closeBox(); });
 	if (!_forPeer && _paper.hasShareUrl()) {
 		addLeftButton(tr::lng_background_share(), [=] { share(); });
@@ -509,6 +568,10 @@ void BackgroundPreviewBox::recreateBlurCheckbox() {
 	}, _blur->lifetime());
 
 	_blur->setDisabled(_paper.document() && _full.isNull());
+
+	if (_forBothOverlay) {
+		_forBothOverlay->raise();
+	}
 }
 
 void BackgroundPreviewBox::apply() {
@@ -519,7 +582,7 @@ void BackgroundPreviewBox::apply() {
 	}
 }
 
-void BackgroundPreviewBox::uploadForPeer() {
+void BackgroundPreviewBox::uploadForPeer(bool both) {
 	Expects(_forPeer != nullptr);
 
 	if (_uploadId) {
@@ -530,11 +593,11 @@ void BackgroundPreviewBox::uploadForPeer() {
 	const auto ready = Window::Theme::PrepareWallPaper(
 		session->mainDcId(),
 		_paper.localThumbnail()->original());
-	const auto documentId = ready.id;
+	const auto documentId = ready->id;
 	_uploadId = FullMsgId(
 		session->userPeerId(),
 		session->data().nextLocalMessageId());
-	session->uploader().uploadMedia(_uploadId, ready);
+	session->uploader().upload(_uploadId, ready);
 	if (_uploadLifetime) {
 		return;
 	}
@@ -578,7 +641,7 @@ void BackgroundPreviewBox::uploadForPeer() {
 					"Got wallPaperNoFile after account.UploadWallPaper."));
 			});
 			if (const auto paper = Data::WallPaper::Create(session, result)) {
-				setExistingForPeer(*paper);
+				setExistingForPeer(*paper, both);
 			}
 		}).send();
 	}, _uploadLifetime);
@@ -587,7 +650,9 @@ void BackgroundPreviewBox::uploadForPeer() {
 	_radial.start(_uploadProgress);
 }
 
-void BackgroundPreviewBox::setExistingForPeer(const Data::WallPaper &paper) {
+void BackgroundPreviewBox::setExistingForPeer(
+		const Data::WallPaper &paper,
+		bool both) {
 	Expects(_forPeer != nullptr);
 
 	if (const auto already = _forPeer->wallPaper()) {
@@ -601,6 +666,7 @@ void BackgroundPreviewBox::setExistingForPeer(const Data::WallPaper &paper) {
 	api->request(MTPmessages_SetChatWallPaper(
 		MTP_flags((_fromMessageId ? Flag::f_id : Flag())
 			| (_fromMessageId ? Flag() : Flag::f_wallpaper)
+			| (both ? Flag::f_for_both : Flag())
 			| Flag::f_settings),
 		_forPeer->input,
 		paper.mtpInput(&_controller->session()),
@@ -614,13 +680,149 @@ void BackgroundPreviewBox::setExistingForPeer(const Data::WallPaper &paper) {
 	_controller->finishChatThemeEdit(_forPeer);
 }
 
+void BackgroundPreviewBox::checkLevelForChannel() {
+	Expects(forChannel());
+
+	const auto show = _controller->uiShow();
+	_forPeerLevelCheck = true;
+	const auto weak = Ui::MakeWeak(this);
+	CheckBoostLevel(show, _forPeer, [=](int level) {
+		if (!weak) {
+			return std::optional<Ui::AskBoostReason>();
+		}
+		const auto limits = Data::LevelLimits(&_forPeer->session());
+		const auto required = _paperEmojiId.isEmpty()
+			? limits.channelCustomWallpaperLevelMin()
+			: limits.channelWallpaperLevelMin();
+		if (level >= required) {
+			applyForPeer(false);
+			return std::optional<Ui::AskBoostReason>();
+		}
+		return std::make_optional(Ui::AskBoostReason{
+			Ui::AskBoostWallpaper{ required, _forPeer->isMegagroup()}
+		});
+	}, [=] { _forPeerLevelCheck = false; });
+}
+
 void BackgroundPreviewBox::applyForPeer() {
 	Expects(_forPeer != nullptr);
 
-	if (Data::IsCustomWallPaper(_paper)) {
-		uploadForPeer();
+	if (!Data::IsCustomWallPaper(_paper)) {
+		if (const auto already = _forPeer->wallPaper()) {
+			if (already->equals(_paper)) {
+				_controller->finishChatThemeEdit(_forPeer);
+				return;
+			}
+		}
+	}
+
+	if (forChannel()) {
+		checkLevelForChannel();
+		return;
+	} else if (_fromMessageId || !_forPeer->session().premiumPossible()) {
+		applyForPeer(false);
+		return;
+	} else if (_forBothOverlay) {
+		return;
+	}
+	const auto size = this->size() * style::DevicePixelRatio();
+	const auto bg = Images::DitherImage(
+		Images::BlurLargeImage(
+			Ui::GrabWidgetToImage(this).scaled(
+				size / style::ConvertScale(4),
+				Qt::IgnoreAspectRatio,
+				Qt::SmoothTransformation),
+			24).scaled(
+				size,
+				Qt::IgnoreAspectRatio,
+				Qt::SmoothTransformation));
+
+	_forBothOverlay = std::make_unique<Ui::FadeWrap<>>(
+		this,
+		object_ptr<Ui::RpWidget>(this));
+	const auto overlay = _forBothOverlay->entity();
+
+	sizeValue() | rpl::start_with_next([=](QSize size) {
+		_forBothOverlay->setGeometry({ QPoint(), size });
+		overlay->setGeometry({ QPoint(), size });
+	}, _forBothOverlay->lifetime());
+
+	overlay->paintRequest(
+	) | rpl::start_with_next([=](QRect clip) {
+		auto p = QPainter(overlay);
+		p.drawImage(0, 0, bg);
+		p.fillRect(clip, QColor(0, 0, 0, 64));
+	}, overlay->lifetime());
+
+	using namespace Ui;
+	const auto forMe = CreateChild<RoundButton>(
+		overlay,
+		tr::lng_background_apply_me(),
+		st::backgroundConfirm);
+	forMe->setClickedCallback([=] {
+		applyForPeer(false);
+	});
+	using namespace rpl::mappers;
+	const auto forBoth = ::Settings::CreateLockedButton(
+		overlay,
+		tr::lng_background_apply_both(
+			lt_user,
+			rpl::single(_forPeer->shortName())),
+		st::backgroundConfirm,
+		Data::AmPremiumValue(&_forPeer->session()) | rpl::map(!_1));
+	forBoth->setClickedCallback([=] {
+		if (_forPeer->session().premium()) {
+			applyForPeer(true);
+		} else {
+			ShowPremiumPreviewBox(
+				_controller->uiShow(),
+				PremiumFeature::Wallpapers);
+		}
+	});
+	const auto cancel = CreateChild<RoundButton>(
+		overlay,
+		tr::lng_cancel(),
+		st::backgroundConfirmCancel);
+	cancel->setClickedCallback([=] {
+		const auto raw = _forBothOverlay.release();
+		raw->shownValue() | rpl::filter(
+			!rpl::mappers::_1
+		) | rpl::take(1) | rpl::start_with_next(crl::guard(raw, [=] {
+			delete raw;
+		}), raw->lifetime());
+		raw->toggle(false, anim::type::normal);
+	});
+	forMe->setTextTransform(RoundButton::TextTransform::NoTransform);
+	forBoth->setTextTransform(RoundButton::TextTransform::NoTransform);
+	cancel->setTextTransform(RoundButton::TextTransform::NoTransform);
+
+	overlay->sizeValue(
+	) | rpl::start_with_next([=](QSize size) {
+		const auto padding = st::backgroundConfirmPadding;
+		const auto width = size.width()
+			- padding.left()
+			- padding.right();
+		const auto height = cancel->height();
+		auto top = size.height() - padding.bottom() - height;
+		cancel->setGeometry(padding.left(), top, width, height);
+		top -= height + padding.top();
+		forBoth->setGeometry(padding.left(), top, width, height);
+		top -= height + padding.top();
+		forMe->setGeometry(padding.left(), top, width, height);
+	}, _forBothOverlay->lifetime());
+
+	_forBothOverlay->hide(anim::type::instant);
+	_forBothOverlay->show(anim::type::normal);
+}
+
+void BackgroundPreviewBox::applyForPeer(bool both) {
+	using namespace Data;
+	if (forChannel() && !_paperEmojiId.isEmpty()) {
+		setExistingForPeer(WallPaper::FromEmojiId(_paperEmojiId), both);
+	} else if (IsCustomWallPaper(_paper)) {
+		uploadForPeer(both);
 	} else {
-		setExistingForPeer(_paper);
+		setExistingForPeer(_paper, both);
 	}
 }
 
@@ -687,7 +889,7 @@ void BackgroundPreviewBox::paintEvent(QPaintEvent *e) {
 void BackgroundPreviewBox::paintImage(Painter &p) {
 	Expects(!_scaled.isNull());
 
-	const auto factor = cIntRetinaFactor();
+	const auto factor = style::DevicePixelRatio();
 	const auto size = st::boxWideWidth;
 	const auto from = QRect(
 		0,
@@ -738,7 +940,7 @@ int BackgroundPreviewBox::textsTop() const {
 		- st::historyPaddingBottom
 		- (_service ? _service->height() : 0)
 		- _text1->height()
-		- _text2->height();
+		- (forChannel() ? 0 : _text2->height());
 }
 
 QRect BackgroundPreviewBox::radialRect() const {
@@ -768,10 +970,11 @@ void BackgroundPreviewBox::paintTexts(Painter &p, crl::time ms) {
 	context.outbg = _text1->hasOutLayout();
 	_text1->draw(p, context);
 	p.translate(0, height1);
-
-	context.outbg = _text2->hasOutLayout();
-	_text2->draw(p, context);
-	p.translate(0, height2);
+	if (!forChannel()) {
+		context.outbg = _text2->hasOutLayout();
+		_text2->draw(p, context);
+		p.translate(0, height2);
+	}
 }
 
 void BackgroundPreviewBox::radialAnimationCallback(crl::time now) {
@@ -871,7 +1074,11 @@ void BackgroundPreviewBox::updateServiceBg(const std::vector<QColor> &bg) {
 	_service = GenerateServiceItem(
 		delegate(),
 		_serviceHistory,
-		((_forPeer && !_fromMessageId)
+		(forGroup()
+			? tr::lng_background_other_group(tr::now)
+			: forChannel()
+			? tr::lng_background_other_channel(tr::now)
+			: (_forPeer && !_fromMessageId)
 			? tr::lng_background_other_info(
 				tr::now,
 				lt_user,

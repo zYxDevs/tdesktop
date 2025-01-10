@@ -24,7 +24,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/toast/toast.h"
 #include "ui/text/text_options.h"
 #include "ui/painter.h"
+#include "ui/vertical_list.h"
+#include "ui/ui_utility.h"
 #include "storage/localstorage.h"
+#include "boxes/abstract_box.h"
 #include "boxes/premium_preview_box.h"
 #include "boxes/translate_box.h"
 #include "ui/boxes/confirm_box.h"
@@ -1119,7 +1122,7 @@ void LanguageBox::prepare() {
 
 	using namespace rpl::mappers;
 
-	const auto [recent, official] = PrepareLists();
+	const auto &[recent, official] = PrepareLists();
 	const auto inner = setInnerWidget(
 		object_ptr<Content>(this, recent, official),
 		st::boxScroll,
@@ -1177,12 +1180,12 @@ void LanguageBox::setupTop(not_null<Ui::VerticalLayout*> container) {
 	if (!_controller) {
 		return;
 	}
-	const auto translateEnabled = Settings::AddButton(
-		container,
-		tr::lng_translate_settings_show(),
-		st::settingsButtonNoIcon
-	)->toggleOn(
-		rpl::single(Core::App().settings().translateButtonEnabled()));
+	const auto translateEnabled = container->add(
+		object_ptr<Ui::SettingsButton>(
+			container,
+			tr::lng_translate_settings_show(),
+			st::settingsButtonNoIcon))->toggleOn(
+				rpl::single(Core::App().settings().translateButtonEnabled()));
 
 	translateEnabled->toggledValue(
 	) | rpl::filter([](bool checked) {
@@ -1194,11 +1197,11 @@ void LanguageBox::setupTop(not_null<Ui::VerticalLayout*> container) {
 
 	using namespace rpl::mappers;
 	auto premium = Data::AmPremiumValue(&_controller->session());
-	const auto translateChat = Settings::AddButton(
+	const auto translateChat = container->add(object_ptr<Ui::SettingsButton>(
 		container,
 		tr::lng_translate_settings_chat(),
 		st::settingsButtonNoIconLocked
-	)->toggleOn(rpl::merge(
+	))->toggleOn(rpl::merge(
 		rpl::combine(
 			Core::App().settings().translateChatEnabledValue(),
 			rpl::duplicate(premium),
@@ -1214,7 +1217,7 @@ void LanguageBox::setupTop(not_null<Ui::VerticalLayout*> container) {
 		if (checked && !premium) {
 			ShowPremiumPreviewToBuy(
 				_controller,
-				PremiumPreview::RealTimeTranslation);
+				PremiumFeature::RealTimeTranslation);
 			_translateChatTurnOff.fire(false);
 		}
 		return premium
@@ -1250,10 +1253,8 @@ void LanguageBox::setupTop(not_null<Ui::VerticalLayout*> container) {
 	translateSkip->setClickedCallback([=] {
 		uiShow()->showBox(Ui::EditSkipTranslationLanguages());
 	});
-	Settings::AddSkip(container);
-	Settings::AddDividerText(
-		container,
-		tr::lng_translate_settings_about());
+	Ui::AddSkip(container);
+	Ui::AddDividerText(container, tr::lng_translate_settings_about());
 }
 
 void LanguageBox::keyPressEvent(QKeyEvent *e) {

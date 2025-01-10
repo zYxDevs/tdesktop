@@ -19,19 +19,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "main/main_app_config.h"
 #include "media/view/media_view_open_common.h"
+#include "lang/lang_keys.h"
 #include "intro/intro_widget.h"
 #include "mtproto/mtproto_config.h"
-#include "ui/layers/box_content.h"
-#include "ui/layers/layer_widget.h"
 #include "ui/toast/toast.h"
 #include "ui/emoji_config.h"
 #include "chat_helpers/emoji_sets_manager.h"
 #include "window/window_session_controller.h"
-#include "window/themes/window_theme.h"
 #include "window/themes/window_theme_editor.h"
 #include "ui/boxes/confirm_box.h"
-#include "data/data_peer.h"
-#include "mainwindow.h"
+#include "data/data_thread.h"
 #include "apiwrap.h" // ApiWrap::acceptTerms.
 #include "styles/style_layers.h"
 
@@ -96,23 +93,18 @@ Show::operator bool() const {
 
 } // namespace
 
-Controller::Controller() : Controller(CreateArgs{}) {
+Controller::Controller() : Controller(CreateArgs{ nullptr }) {
 }
 
-Controller::Controller(not_null<Main::Account*> account)
-: Controller(CreateArgs{}) {
-	showAccount(account);
-}
-
-Controller::Controller(
-	not_null<PeerData*> singlePeer,
-	MsgId showAtMsgId)
-: Controller(CreateArgs{ singlePeer.get() }) {
-	showAccount(&singlePeer->account(), showAtMsgId);
+Controller::Controller(SeparateId id, MsgId showAtMsgId)
+: Controller(CreateArgs{ id }) {
+	if (id) {
+		showAccount(id.account, showAtMsgId);
+	}
 }
 
 Controller::Controller(CreateArgs &&args)
-: _singlePeer(args.singlePeer)
+: _id(args.id)
 , _isActiveTimer([=] { updateIsActive(); })
 , _widget(this)
 , _adaptive(std::make_unique<Adaptive>()) {
@@ -128,6 +120,20 @@ Controller::~Controller() {
 	_sessionController = nullptr;
 }
 
+SeparateId Controller::id() const {
+	return _id;
+}
+
+bool Controller::isPrimary() const {
+	return _id.primary();
+}
+
+Main::Account &Controller::account() const {
+	Expects(_id.account != nullptr);
+
+	return *_id.account;
+}
+
 void Controller::showAccount(not_null<Main::Account*> account) {
 	showAccount(account, ShowAtUnreadMsgId);
 }
@@ -135,20 +141,21 @@ void Controller::showAccount(not_null<Main::Account*> account) {
 void Controller::showAccount(
 		not_null<Main::Account*> account,
 		MsgId singlePeerShowAtMsgId) {
-	Expects(isPrimary() || &_singlePeer->account() == account);
+	Expects(isPrimary() || _id.account == account);
 
-	const auto prevSessionUniqueId = (_account && _account->sessionExists())
-		? _account->session().uniqueId()
+	const auto prevSession = maybeSession();
+	const auto prevSessionUniqueId = prevSession
+		? prevSession->uniqueId()
 		: 0;
 	_accountLifetime.destroy();
-	_account = account;
-	Core::App().checkWindowAccount(this);
+	_id.account = account;
+	Core::App().checkWindowId(this);
 
-	const auto updateOnlineOfPrevSesssion = crl::guard(_account, [=] {
+	const auto updateOnlineOfPrevSesssion = crl::guard(account, [=] {
 		if (!prevSessionUniqueId) {
 			return;
 		}
-		for (auto &[index, account] : _account->domain().accounts()) {
+		for (auto &[index, account] : _id.account->domain().accounts()) {
 			if (const auto anotherSession = account->maybeSession()) {
 				if (anotherSession->uniqueId() == prevSessionUniqueId) {
 					anotherSession->updates().updateOnline(crl::now());
@@ -158,12 +165,15 @@ void Controller::showAccount(
 		}
 	});
 
-	_account->sessionValue(
-	) | rpl::start_with_next([=](Main::Session *session) {
-		if (!isPrimary() && (&_singlePeer->session() != session)) {
+	if (!isPrimary()) {
+		_id.account->sessionChanges(
+		) | rpl::start_with_next([=](Main::Session *session) {
 			Core::App().closeWindow(this);
-			return;
-		}
+		}, _accountLifetime);
+	}
+
+	_id.account->sessionValue(
+	) | rpl::start_with_next([=](Main::Session *session) {
 		const auto was = base::take(_sessionController);
 		_sessionController = session
 			? std::make_unique<SessionController>(session, this)
@@ -208,10 +218,6 @@ void Controller::showAccount(
 	}, _accountLifetime);
 }
 
-PeerData *Controller::singlePeer() const {
-	return _singlePeer;
-}
-
 void Controller::setupSideBar() {
 	Expects(_sessionController != nullptr);
 
@@ -223,7 +229,9 @@ void Controller::setupSideBar() {
 		sideBarChanged();
 	}, _sessionController->lifetime());
 
-	if (_sessionController->session().settings().dialogsFiltersEnabled()) {
+	if (_sessionController->session().settings().dialogsFiltersEnabled()
+		&& _sessionController->enoughSpaceForFilters()
+		&& !Core::App().settings().chatFiltersHorizontal()) {
 		_sessionController->toggleFiltersMenu(true);
 	} else {
 		sideBarChanged();
@@ -314,13 +322,17 @@ void Controller::showTermsDelete() {
 	}));
 }
 
+void Controller::firstShow() {
+	_widget.firstShow();
+}
+
 void Controller::finishFirstShow() {
 	_widget.finishFirstShow();
 	checkThemeEditor();
 }
 
 Main::Session *Controller::maybeSession() const {
-	return _account ? _account->maybeSession() : nullptr;
+	return _id.account ? _id.account->maybeSession() : nullptr;
 }
 
 auto Controller::sessionControllerValue() const
@@ -355,7 +367,7 @@ void Controller::setupPasscodeLock() {
 }
 
 void Controller::clearPasscodeLock() {
-	if (!_account) {
+	if (!_id) {
 		showAccount(&Core::App().activeAccount());
 	} else {
 		_widget.clearPasscodeLock();
@@ -443,10 +455,6 @@ void Controller::activate() {
 	_widget.activate();
 }
 
-void Controller::reActivate() {
-	_widget.reActivateWindow();
-}
-
 void Controller::updateIsActiveFocus() {
 	_isActiveTimer.callOnce(sessionController()
 		? sessionController()->session().serverConfig().onlineFocusTimeout
@@ -485,7 +493,7 @@ void Controller::invokeForSessionController(
 		PeerData *singlePeer,
 		Fn<void(not_null<SessionController*>)> &&callback) {
 	const auto separateWindow = singlePeer
-		? Core::App().separateWindowForPeer(singlePeer)
+		? Core::App().separateWindowFor(not_null(singlePeer))
 		: nullptr;
 	const auto separateSession = separateWindow
 		? separateWindow->sessionController()
@@ -493,7 +501,16 @@ void Controller::invokeForSessionController(
 	if (separateSession) {
 		return callback(separateSession);
 	}
-	_account->domain().activate(std::move(account));
+	const auto accountWindow = account
+		? Core::App().separateWindowFor(not_null(account))
+		: nullptr;
+	const auto accountSession = accountWindow
+		? accountWindow->sessionController()
+		: nullptr;
+	if (accountSession) {
+		return callback(accountSession);
+	}
+	_id.account->domain().activate(std::move(account));
 	if (_sessionController) {
 		callback(_sessionController.get());
 	}

@@ -19,7 +19,6 @@ class Session;
 
 namespace Ui {
 class Show;
-enum class ReportReason;
 } // namespace Ui
 
 namespace Data {
@@ -33,11 +32,14 @@ class StoryPreload;
 
 struct StoriesIds {
 	base::flat_set<StoryId, std::greater<>> list;
+	std::vector<StoryId> pinnedToTop;
 
 	friend inline bool operator==(
 		const StoriesIds&,
 		const StoriesIds&) = default;
 };
+
+[[nodiscard]] std::vector<StoryId> RespectingPinned(const StoriesIds &ids);
 
 struct StoriesSourceInfo {
 	PeerId id = 0;
@@ -131,7 +133,7 @@ public:
 	explicit Stories(not_null<Session*> owner);
 	~Stories();
 
-	static constexpr auto kPinnedToastDuration = 4 * crl::time(1000);
+	static constexpr auto kInProfileToastDuration = 4 * crl::time(1000);
 
 	[[nodiscard]] Session &owner() const;
 	[[nodiscard]] Main::Session &session() const;
@@ -149,7 +151,7 @@ public:
 	void apply(const MTPDupdateReadStories &data);
 	void apply(const MTPStoriesStealthMode &stealthMode);
 	void apply(not_null<PeerData*> peer, const MTPPeerStories *data);
-	Story *applyFromWebpage(PeerId peerId, const MTPstoryItem &story);
+	Story *applySingle(PeerId peerId, const MTPstoryItem &story);
 	void loadAround(FullStoryId id, StoriesContext context);
 
 	const StoriesSource *source(PeerId id) const;
@@ -182,6 +184,11 @@ public:
 		StoryId id,
 		QString offset,
 		Fn<void(StoryViews)> done);
+	void loadReactionsSlice(
+		not_null<PeerData*> peer,
+		StoryId id,
+		QString offset,
+		Fn<void(StoryViews)> done);
 
 	[[nodiscard]] bool hasArchive(not_null<PeerData*> peer) const;
 
@@ -200,12 +207,14 @@ public:
 	void savedLoadMore(PeerId peerId);
 
 	void deleteList(const std::vector<FullStoryId> &ids);
-	void togglePinnedList(const std::vector<FullStoryId> &ids, bool pinned);
-	void report(
-		std::shared_ptr<Ui::Show> show,
-		FullStoryId id,
-		Ui::ReportReason reason,
-		QString text);
+	void toggleInProfileList(
+		const std::vector<FullStoryId> &ids,
+		bool inProfile);
+	[[nodiscard]] bool canTogglePinnedList(
+		const std::vector<FullStoryId> &ids,
+		bool pin) const;
+	[[nodiscard]] int maxPinnedCount() const;
+	void togglePinnedList(const std::vector<FullStoryId> &ids, bool pin);
 
 	void incrementPreloadingMainSources();
 	void decrementPreloadingMainSources();
@@ -307,6 +316,9 @@ private:
 
 	void notifySourcesChanged(StorySourcesList list);
 	void pushHiddenCountsToFolder();
+	void setPinnedToTop(
+		PeerId peerId,
+		std::vector<StoryId> &&pinnedToTop);
 
 	[[nodiscard]] int pollingInterval(
 		const PollingSettings &settings) const;
@@ -378,6 +390,12 @@ private:
 	QString _viewsOffset;
 	Fn<void(StoryViews)> _viewsDone;
 	mtpRequestId _viewsRequestId = 0;
+
+	PeerData *_reactionsStoryPeer = nullptr;
+	StoryId _reactionsStoryId = 0;
+	QString _reactionsOffset;
+	Fn<void(StoryViews)> _reactionsDone;
+	mtpRequestId _reactionsRequestId = 0;
 
 	base::flat_set<FullStoryId> _preloaded;
 	std::vector<FullStoryId> _toPreloadSources[kStorySourcesListCount];

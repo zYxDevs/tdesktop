@@ -13,7 +13,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "history/view/media/history_view_sticker_player.h"
 #include "info/userpic/info_userpic_emoji_builder_common.h"
-#include "main/main_account.h"
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "ui/painter.h"
@@ -171,7 +170,7 @@ EmojiUserpic::EmojiUserpic(
 
 void EmojiUserpic::setDocument(not_null<DocumentData*> document) {
 	if (!_playOnce.has_value()) {
-		const auto &c = document->owner().session().account().appConfig();
+		const auto &c = document->owner().session().appConfig();
 		_playOnce = !c.get<bool>(u"upload_markup_video"_q, false);
 	}
 	_painter.setDocument(document, [=] { update(); });
@@ -186,11 +185,14 @@ void EmojiUserpic::result(int size, Fn<void(UserpicBuilder::Result)> done) {
 		auto background = GenerateGradient(Size(size), _colors, false);
 
 		{
+			constexpr auto kAttemptsToDrawFirstFrame = 3000;
+			auto attempts = 0;
 			auto p = QPainter(&background);
-			while (true) {
+			while (attempts < kAttemptsToDrawFirstFrame) {
 				if (painter->paintForeground(p)) {
 					break;
 				}
+				attempts++;
 			}
 		}
 		if (*_playOnce && document) {

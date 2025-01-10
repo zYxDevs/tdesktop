@@ -96,6 +96,7 @@ private:
 	not_null<Ui::FlatLabel*> _version;
 	QPointer<Ui::SettingsButton> _nightThemeToggle;
 	QPointer<Ui::SettingsButton> _showPhoneToggle;
+	QPointer<Ui::SettingsButton> _screenshotToggle;
 	rpl::event_stream<bool> _nightThemeSwitches;
 	base::Timer _nightThemeSwitch;
 	base::unique_qptr<Ui::PopupMenu> _contextMenu;
@@ -109,7 +110,9 @@ struct OthersUnreadState {
 	bool allMuted = false;
 };
 
-[[nodiscard]] OthersUnreadState OtherAccountsUnreadStateCurrent();
-[[nodiscard]] rpl::producer<OthersUnreadState> OtherAccountsUnreadState();
+[[nodiscard]] OthersUnreadState OtherAccountsUnreadStateCurrent(
+	not_null<Main::Account*> current);
+[[nodiscard]] rpl::producer<OthersUnreadState> OtherAccountsUnreadState(
+	not_null<Main::Account*> current);
 
 } // namespace Window

@@ -7,18 +7,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "base/flags.h"
-#include "base/object_ptr.h"
-#include "base/weak_ptr.h"
 #include "base/timer.h"
-#include "boxes/gift_premium_box.h" // GiftPremiumValidator.
 #include "chat_helpers/compose/compose_show.h"
 #include "data/data_chat_participant_status.h"
+#include "data/data_report.h"
 #include "dialogs/dialogs_key.h"
-#include "ui/layers/layer_widget.h"
+#include "mtproto/sender.h"
 #include "settings/settings_type.h"
 #include "window/window_adaptive.h"
-#include "mtproto/sender.h"
 
 class PhotoData;
 class MainWidget;
@@ -60,7 +56,6 @@ class FormController;
 
 namespace Ui {
 class LayerWidget;
-enum class ReportReason;
 class ChatStyle;
 class ChatTheme;
 struct ChatThemeKey;
@@ -68,6 +63,8 @@ struct ChatPaintContext;
 struct ChatThemeBackground;
 struct ChatThemeBackgroundData;
 class MessageSendingAnimationController;
+struct BoostCounters;
+struct ChatPaintContextArgs;
 } // namespace Ui
 
 namespace Data {
@@ -91,17 +88,10 @@ using GifPauseReasons = ChatHelpers::PauseReasons;
 class SectionMemento;
 class Controller;
 class FiltersMenu;
+class ChatPreviewManager;
 
-enum class ResolveType {
-	Default,
-	BotApp,
-	BotStart,
-	AddToGroup,
-	AddToChannel,
-	ShareGame,
-	Mention,
-	Boost,
-};
+struct PeerByLinkInfo;
+struct SeparateId;
 
 struct PeerThemeOverride {
 	PeerData *peer = nullptr;
@@ -166,12 +156,16 @@ struct SectionShow {
 		return copy;
 	}
 
+	TextWithEntities highlightPart;
+	int highlightPartOffsetHint = 0;
 	Way way = Way::Forward;
 	anim::type animated = anim::type::normal;
 	anim::activation activation = anim::activation::normal;
 	bool thirdColumn = false;
 	bool childColumn = false;
+	bool forbidLayer = false;
 	bool reapplyLocalDraft = false;
+	bool dropSameFromStack = false;
 	Origin origin;
 
 };
@@ -192,33 +186,6 @@ public:
 		const SectionShow &params = SectionShow()) = 0;
 	virtual not_null<SessionController*> parentController() = 0;
 
-	struct CommentId {
-		MsgId id = 0;
-	};
-	struct ThreadId {
-		MsgId id = 0;
-	};
-	using RepliesByLinkInfo = std::variant<v::null_t, CommentId, ThreadId>;
-	struct PeerByLinkInfo {
-		std::variant<QString, ChannelId> usernameOrId;
-		QString phone;
-		MsgId messageId = ShowAtUnreadMsgId;
-		StoryId storyId = 0;
-		RepliesByLinkInfo repliesInfo;
-		ResolveType resolveType = ResolveType::Default;
-		QString startToken;
-		ChatAdminRights startAdminRights;
-		bool startAutoSubmit = false;
-		QString botAppName;
-		bool botAppForceConfirmation = false;
-		QString attachBotUsername;
-		std::optional<QString> attachBotToggleCommand;
-		bool attachBotMenuOpen = false;
-		InlineBots::PeerTypes attachBotChooseTypes;
-		std::optional<QString> voicechatHash;
-		FullMsgId clickFromMessageId;
-		QString clickFromAttachBotWebviewUrl;
-	};
 	void showPeerByLink(const PeerByLinkInfo &info);
 
 	void showRepliesForMessage(
@@ -266,6 +233,10 @@ public:
 			ShowAtUnreadMsgId);
 	}
 
+	void showByInitialId(
+		const SectionShow &params = SectionShow::Way::ClearStack,
+		MsgId msgId = ShowAtUnreadMsgId);
+
 	void showSettings(
 		Settings::Type type,
 		const SectionShow &params = SectionShow());
@@ -275,6 +246,21 @@ public:
 		not_null<PollData*> poll,
 		FullMsgId contextId,
 		const SectionShow &params = SectionShow());
+
+	void searchInChat(Dialogs::Key inChat, PeerData *searchFrom = nullptr);
+	void searchMessages(
+		const QString &query,
+		Dialogs::Key inChat,
+		PeerData *searchFrom = nullptr);
+
+	void resolveBoostState(
+		not_null<ChannelData*> channel,
+		int boostsToLift = 0);
+
+	void resolveCollectible(
+		PeerId ownerId,
+		const QString &entity,
+		Fn<void(QString)> fail = nullptr);
 
 	base::weak_ptr<Ui::Toast::Instance> showToast(
 		Ui::Toast::Config &&config);
@@ -291,9 +277,13 @@ private:
 	void resolvePhone(
 		const QString &phone,
 		Fn<void(not_null<PeerData*>)> done);
+	void resolveChatLink(
+		const QString &slug,
+		Fn<void(not_null<PeerData*> peer, TextWithEntities draft)> done);
 	void resolveUsername(
 		const QString &username,
-		Fn<void(not_null<PeerData*>)> done);
+		Fn<void(not_null<PeerData*>)> done,
+		const QString &starref = QString());
 	void resolveChannelById(
 		ChannelId channelId,
 		Fn<void(not_null<ChannelData*>)> done);
@@ -312,15 +302,13 @@ private:
 		not_null<PeerData*> peer,
 		const PeerByLinkInfo &info);
 
-	void resolveBoostState(not_null<ChannelData*> channel);
-	void applyBoost(not_null<ChannelData*> channel, Fn<void(bool)> done);
-	void replaceBoostConfirm(
-		not_null<PeerData*> from,
+	void applyBoost(
 		not_null<ChannelData*> channel,
-		Fn<void(bool)> done);
-	void applyBoostChecked(
+		Fn<void(Ui::BoostCounters)> done);
+	void applyBoostsChecked(
 		not_null<ChannelData*> channel,
-		Fn<void(bool)> done);
+		std::vector<int> slots,
+		Fn<void(Ui::BoostCounters)> done);
 
 	const not_null<Main::Session*> _session;
 
@@ -333,6 +321,10 @@ private:
 	mtpRequestId _showingRepliesRequestId = 0;
 
 	ChannelData *_boostStateResolving = nullptr;
+	int _boostsToLift = 0;
+
+	QString _collectibleEntity;
+	mtpRequestId _collectibleRequestId = 0;
 
 };
 
@@ -346,7 +338,7 @@ public:
 	[[nodiscard]] Controller &window() const {
 		return *_window;
 	}
-	[[nodiscard]] PeerData *singlePeer() const;
+	[[nodiscard]] SeparateId windowId() const;
 	[[nodiscard]] bool isPrimary() const;
 	[[nodiscard]] not_null<::MainWindow*> widget() const;
 	[[nodiscard]] not_null<MainWidget*> content() const;
@@ -377,7 +369,12 @@ public:
 
 	// This is needed for History TopBar updating when searchInChat
 	// is changed in the Dialogs::Widget of the current window.
-	rpl::variable<Dialogs::Key> searchInChat;
+	rpl::producer<Dialogs::Key> searchInChatValue() const {
+		return _searchInChat.value();
+	}
+	void setSearchInChat(Dialogs::Key value) {
+		_searchInChat = value;
+	}
 	bool uniqueChatsInSearchResults() const;
 
 	void openFolder(not_null<Data::Folder*> folder);
@@ -400,8 +397,10 @@ public:
 	rpl::producer<Dialogs::Key> activeChatValue() const;
 	bool jumpToChatListEntry(Dialogs::RowDescriptor row);
 
-	void setCurrentDialogsEntryState(Dialogs::EntryState state);
-	[[nodiscard]] Dialogs::EntryState currentDialogsEntryState() const;
+	void setDialogsEntryState(Dialogs::EntryState state);
+	[[nodiscard]] Dialogs::EntryState dialogsEntryStateCurrent() const;
+	[[nodiscard]] auto dialogsEntryStateValue() const
+		-> rpl::producer<Dialogs::EntryState>;
 	bool switchInlineQuery(
 		Dialogs::EntryState to,
 		not_null<UserData*> bot,
@@ -417,7 +416,6 @@ public:
 		Dialogs::RowDescriptor from = {}) const;
 
 	void showEditPeerBox(PeerData *peer);
-	void showGiftPremiumBox(UserData *user);
 
 	void enableGifPauseReason(GifPauseReason reason);
 	void disableGifPauseReason(GifPauseReason reason);
@@ -436,15 +434,14 @@ public:
 	};
 	[[nodiscard]] ColumnLayout computeColumnLayout() const;
 	int dialogsSmallColumnWidth() const;
-	bool forceWideDialogs() const;
-	void updateColumnLayout();
+	void updateColumnLayout() const;
 	bool canShowThirdSection() const;
 	bool canShowThirdSectionWithoutResize() const;
 	bool takeThirdSectionFromLayer();
 	void resizeForThirdSection();
 	void closeThirdSection();
 
-	[[nodiscard]] bool canShowSeparateWindow(not_null<PeerData*> peer) const;
+	[[nodiscard]] bool canShowSeparateWindow(SeparateId id) const;
 	void showPeer(not_null<PeerData*> peer, MsgId msgId = ShowAtUnreadMsgId);
 
 	void startOrJoinGroupCall(not_null<PeerData*> peer);
@@ -517,37 +514,38 @@ public:
 
 	void showChooseReportMessages(
 		not_null<PeerData*> peer,
-		Ui::ReportReason reason,
-		Fn<void(MessageIdsList)> done);
-	void clearChooseReportMessages();
+		Data::ReportInput reportInput,
+		Fn<void(std::vector<MsgId>)> done) const;
+	void clearChooseReportMessages() const;
 
 	void showInNewWindow(
-		not_null<PeerData*> peer,
+		SeparateId id,
 		MsgId msgId = ShowAtUnreadMsgId);
 
 	void toggleChooseChatTheme(
 		not_null<PeerData*> peer,
-		std::optional<bool> show = std::nullopt);
+		std::optional<bool> show = std::nullopt) const;
 	void finishChatThemeEdit(not_null<PeerData*> peer);
 
-	[[nodiscard]] bool dialogsListFocused() const {
-		return _dialogsListFocused.current();
+	[[nodiscard]] bool mainSectionShown() const {
+		return _mainSectionShown.current();
 	}
-	[[nodiscard]] rpl::producer<bool> dialogsListFocusedChanges() const {
-		return _dialogsListFocused.changes();
+	[[nodiscard]] rpl::producer<bool> mainSectionShownChanges() const {
+		return _mainSectionShown.changes();
 	}
-	void setDialogsListFocused(bool value) {
-		_dialogsListFocused = value;
+	void setMainSectionShown(bool value) {
+		_mainSectionShown = value;
 	}
-	[[nodiscard]] bool dialogsListDisplayForced() const {
-		return _dialogsListDisplayForced.current();
+
+	[[nodiscard]] bool chatsForceDisplayWide() const {
+		return _chatsForceDisplayWide.current();
 	}
-	[[nodiscard]] auto dialogsListDisplayForcedChanges() const
+	[[nodiscard]] auto chatsForceDisplayWideChanges() const
 	-> rpl::producer<bool> {
-		return _dialogsListDisplayForced.changes();
+		return _chatsForceDisplayWide.changes();
 	}
-	void setDialogsListDisplayForced(bool value) {
-		_dialogsListDisplayForced = value;
+	void setChatsForceDisplayWide(bool value) {
+		_chatsForceDisplayWide = value;
 	}
 
 	not_null<SessionController*> parentController() override {
@@ -555,6 +553,8 @@ public:
 	}
 
 	[[nodiscard]] int filtersWidth() const;
+	[[nodiscard]] bool enoughSpaceForFilters() const;
+	[[nodiscard]] rpl::producer<bool> enoughSpaceForFiltersValue() const;
 	[[nodiscard]] rpl::producer<FilterId> activeChatsFilter() const;
 	[[nodiscard]] FilterId activeChatsFilterCurrent() const;
 	void setActiveChatsFilter(
@@ -601,22 +601,10 @@ public:
 		PeerId peerId,
 		std::optional<Data::StorySourcesList> list = std::nullopt);
 
-	struct PaintContextArgs {
-		not_null<Ui::ChatTheme*> theme;
-		int visibleAreaTop = 0;
-		int visibleAreaTopGlobal = 0;
-		int visibleAreaWidth = 0;
-		QRect clip;
-	};
 	[[nodiscard]] Ui::ChatPaintContext preparePaintContext(
-		PaintContextArgs &&args);
+		Ui::ChatPaintContextArgs &&args);
 	[[nodiscard]] not_null<const Ui::ChatStyle*> chatStyle() const {
 		return _chatStyle.get();
-	}
-
-	[[nodiscard]] auto cachedReactionIconFactory() const
-	-> HistoryView::Reactions::CachedIconFactory & {
-		return *_cachedReactionIconFactory;
 	}
 
 	[[nodiscard]] QString authedName() const {
@@ -626,7 +614,19 @@ public:
 	void setPremiumRef(const QString &ref);
 	[[nodiscard]] QString premiumRef() const;
 
-	[[nodiscard]] bool contentOverlapped(QWidget *w, QPaintEvent *e);
+	bool showChatPreview(
+		Dialogs::RowDescriptor row,
+		Fn<void(bool shown)> callback = nullptr,
+		QPointer<QWidget> parentOverride = nullptr,
+		std::optional<QPoint> positionOverride = {});
+	bool scheduleChatPreview(
+		Dialogs::RowDescriptor row,
+		Fn<void(bool shown)> callback = nullptr,
+		QPointer<QWidget> parentOverride = nullptr,
+		std::optional<QPoint> positionOverride = {});
+	void cancelScheduledPreview();
+
+	[[nodiscard]] bool contentOverlapped(QWidget *w, QPaintEvent *e) const;
 
 	[[nodiscard]] std::shared_ptr<ChatHelpers::Show> uiShow() override;
 
@@ -639,8 +639,7 @@ private:
 	struct CachedTheme;
 
 	void init();
-	void initSupportMode();
-	void refreshFiltersMenu();
+	void setupShortcuts();
 	void checkOpenedFilter();
 	void suggestArchiveAndMute();
 	void activateFirstChatsFilter();
@@ -676,9 +675,20 @@ private:
 		CachedTheme &theme,
 		bool generateGradient = true) const;
 
+	[[nodiscard]] bool skipNonPremiumLimitToast(bool download) const;
+	void checkNonPremiumLimitToastDownload(DocumentId id);
+	void checkNonPremiumLimitToastUpload(FullMsgId id);
+
+	bool openFolderInDifferentWindow(not_null<Data::Folder*> folder);
+	bool showForumInDifferentWindow(
+		not_null<Data::Forum*> forum,
+		const SectionShow &params);
+
 	const not_null<Controller*> _window;
 	const std::unique_ptr<ChatHelpers::EmojiInteractions> _emojiInteractions;
+	const std::unique_ptr<ChatPreviewManager> _chatPreviewManager;
 	const bool _isPrimary = false;
+	const bool _hasDialogs = false;
 
 	mutable std::shared_ptr<ChatHelpers::Show> _cachedShow;
 
@@ -696,15 +706,16 @@ private:
 	// Depends on _gifPause*.
 	const std::unique_ptr<ChatHelpers::TabbedSelector> _tabbedSelector;
 
+	rpl::variable<Dialogs::Key> _searchInChat;
 	rpl::variable<Dialogs::RowDescriptor> _activeChatEntry;
 	rpl::lifetime _activeHistoryLifetime;
-	rpl::variable<bool> _dialogsListFocused = false;
-	rpl::variable<bool> _dialogsListDisplayForced = false;
+	rpl::variable<bool> _mainSectionShown = false;
+	rpl::variable<bool> _chatsForceDisplayWide = false;
 	std::deque<Dialogs::RowDescriptor> _chatEntryHistory;
 	int _chatEntryHistoryPosition = -1;
 	bool _filtersActivated = false;
 
-	Dialogs::EntryState _currentDialogsEntryState;
+	rpl::variable<Dialogs::EntryState> _dialogsEntryState;
 
 	base::Timer _invitePeekTimer;
 
@@ -721,7 +732,7 @@ private:
 
 	rpl::event_stream<> _filtersMenuChanged;
 
-	std::shared_ptr<Ui::ChatTheme> _defaultChatTheme;
+	const std::shared_ptr<Ui::ChatTheme> _defaultChatTheme;
 	base::flat_map<CachedThemeKey, CachedTheme> _customChatThemes;
 	rpl::event_stream<std::shared_ptr<Ui::ChatTheme>> _cachedThemesStream;
 	const std::unique_ptr<Ui::ChatStyle> _chatStyle;
@@ -729,12 +740,7 @@ private:
 	std::deque<std::shared_ptr<Ui::ChatTheme>> _lastUsedCustomChatThemes;
 	rpl::variable<PeerThemeOverride> _peerThemeOverride;
 
-	using ReactionIconFactory = HistoryView::Reactions::CachedIconFactory;
-	std::unique_ptr<ReactionIconFactory> _cachedReactionIconFactory;
-
 	base::has_weak_ptr _storyOpenGuard;
-
-	GiftPremiumValidator _giftPremiumValidator;
 
 	QString _premiumRef;
 

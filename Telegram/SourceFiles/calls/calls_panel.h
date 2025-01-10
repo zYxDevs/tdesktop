@@ -37,6 +37,7 @@ class FadeWrap;
 template <typename Widget>
 class PaddingWrap;
 class RpWindow;
+class PopupMenu;
 namespace GL {
 enum class Backend;
 } // namespace GL
@@ -55,12 +56,14 @@ namespace Calls {
 class Userpic;
 class SignalBars;
 class VideoBubble;
+struct DeviceSelection;
 
 class Panel final : private Group::Ui::DesktopCapture::ChooseSourceDelegate {
 public:
 	Panel(not_null<Call*> call);
 	~Panel();
 
+	[[nodiscard]] bool isVisible() const;
 	[[nodiscard]] bool isActive() const;
 	void showAndActivate();
 	void minimize();
@@ -104,9 +107,10 @@ private:
 	void initControls();
 	void reinitWithCall(Call *call);
 	void initLayout();
+	void initMediaDeviceToggles();
 	void initGeometry();
 
-	void handleClose();
+	[[nodiscard]] bool handleClose() const;
 
 	void updateControlsGeometry();
 	void updateHangupGeometry();
@@ -122,7 +126,13 @@ private:
 	void refreshOutgoingPreviewInBody(State state);
 	void toggleFullScreen(bool fullscreen);
 	void createRemoteAudioMute();
+	void createRemoteLowBattery();
+	void showRemoteLowBattery();
 	void refreshAnswerHangupRedialLabel();
+
+	void showDevicesMenu(
+		not_null<QWidget*> button,
+		std::vector<DeviceSelection> types);
 
 	[[nodiscard]] QRect incomingFrameGeometry() const;
 	[[nodiscard]] QRect outgoingFrameGeometry() const;
@@ -154,17 +164,23 @@ private:
 	Ui::Animations::Simple _hangupShownProgress;
 	object_ptr<Ui::FadeWrap<Ui::CallButton>> _screencast;
 	object_ptr<Ui::CallButton> _camera;
+	Ui::CallButton *_cameraDeviceToggle = nullptr;
 	base::unique_qptr<Ui::CallButton> _startVideo;
 	object_ptr<Ui::FadeWrap<Ui::CallButton>> _mute;
+	Ui::CallButton *_audioDeviceToggle = nullptr;
 	object_ptr<Ui::FlatLabel> _name;
 	object_ptr<Ui::FlatLabel> _status;
 	object_ptr<Ui::RpWidget> _fingerprint = { nullptr };
 	object_ptr<Ui::PaddingWrap<Ui::FlatLabel>> _remoteAudioMute = { nullptr };
+	object_ptr<Ui::PaddingWrap<Ui::FlatLabel>> _remoteLowBattery
+		= { nullptr };
 	std::unique_ptr<Userpic> _userpic;
 	std::unique_ptr<VideoBubble> _outgoingVideoBubble;
 	QPixmap _bottomShadow;
 	int _bodyTop = 0;
 	int _buttonsTop = 0;
+
+	base::unique_qptr<Ui::PopupMenu> _devicesMenu;
 
 	base::Timer _updateDurationTimer;
 	base::Timer _updateOuterRippleTimer;

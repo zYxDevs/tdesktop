@@ -20,6 +20,7 @@ class UserpicButton;
 class FlatLabel;
 template <typename Widget>
 class SlideWrap;
+class RoundButton;
 } // namespace Ui
 
 namespace HistoryView {
@@ -70,6 +71,7 @@ private:
 	Fn<bool()> _paused;
 	Fn<void()> _update;
 	std::shared_ptr<StickerPlayer> _player;
+	bool _playerUsesTextColor = false;
 	QImage _image;
 	rpl::lifetime _lifetime;
 
@@ -81,6 +83,10 @@ public:
 		QWidget *parent,
 		not_null<Window::SessionController*> controller,
 		not_null<Data::ForumTopic*> topic);
+	TopicIconButton(
+		QWidget *parent,
+		not_null<Data::ForumTopic*> topic,
+		Fn<bool()> paused);
 
 private:
 	TopicIconView _view;
@@ -126,6 +132,7 @@ private:
 		Role role,
 		rpl::producer<QString> title);
 
+	void setupShowLastSeen();
 	void setupChildGeometry();
 	void initViewers(rpl::producer<QString> title);
 	void refreshStatusText();
@@ -140,17 +147,18 @@ private:
 	const not_null<Window::SessionController*> _controller;
 	const not_null<PeerData*> _peer;
 	const std::unique_ptr<EmojiStatusPanel> _emojiStatusPanel;
+	const std::unique_ptr<Badge> _verify;
 	const std::unique_ptr<Badge> _badge;
-	std::unique_ptr<Badge> _devBadge;
 	rpl::variable<int> _onlineCount;
 
-	object_ptr<Ui::UserpicButton> _userpic;
+	const object_ptr<Ui::UserpicButton> _userpic;
 	Ui::UserpicButton *_changePersonal = nullptr;
 	std::optional<QImage> _personalChosen;
 	object_ptr<TopicIconButton> _iconButton;
 	object_ptr<Ui::FlatLabel> _name = { nullptr };
 	object_ptr<Ui::FlatLabel> _status = { nullptr };
 	object_ptr<Ui::FlatLabel> _id = { nullptr };
+	object_ptr<Ui::RoundButton> _showLastSeen = { nullptr };
 	//object_ptr<CoverDropArea> _dropArea = { nullptr };
 	base::Timer _refreshStatusTimer;
 

@@ -34,11 +34,11 @@ constexpr auto kMaxMessagesToDeleteMyTopic = 10;
 		not_null<History*> history,
 		TimeId date,
 		const QString &text) {
-	return history->makeMessage(
-		history->nextNonHistoryEntryId(),
-		MessageFlag::FakeHistoryItem,
-		date,
-		PreparedServiceText{ { .text = text } });
+	return history->makeMessage({
+		.id = history->nextNonHistoryEntryId(),
+		.flags = MessageFlag::FakeHistoryItem,
+		.date = date,
+	}, PreparedServiceText{ { .text = text } });
 }
 
 [[nodiscard]] bool IsCreating(not_null<History*> history, MsgId rootId) {
@@ -367,6 +367,16 @@ bool RepliesList::buildFromData(not_null<Viewer*> viewer) {
 		if (viewer->around != ShowAtUnreadMsgId) {
 			return viewer->around;
 		} else if (const auto item = lookupRoot()) {
+			return computeInboxReadTillFull();
+		} else if (_owningTopic) {
+			// Somehow we don't want always to jump to computed inboxReadTill
+			// (this was in the code before, but I don't remember why).
+			// Maybe in case we "View Thread" from a group we don't really
+			// want to jump to unread inside thread, cause it isn't defined.
+			//
+			// But in case of topics we definitely want to support jumping
+			// to the first unread, even if it is General topic without the
+			// actual root message or it is a broken topic without root.
 			return computeInboxReadTillFull();
 		}
 		return viewer->around;

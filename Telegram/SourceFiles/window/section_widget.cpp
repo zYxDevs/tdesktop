@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/section_widget.h"
 
 #include "mainwidget.h"
+#include "mainwindow.h"
 #include "ui/ui_utility.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/painter.h"
@@ -50,13 +51,22 @@ struct ResolvedPaper {
 	std::shared_ptr<Data::DocumentMedia> media;
 };
 
-[[nodiscard]] rpl::producer<std::optional<ResolvedPaper>> PeerWallPaperValue(
+[[nodiscard]] rpl::producer<const Data::WallPaper*> PeerWallPaperMapped(
 		not_null<PeerData*> peer) {
 	return peer->session().changes().peerFlagsValue(
 		peer,
 		Data::PeerUpdate::Flag::ChatWallPaper
-	) | rpl::map([=]() -> rpl::producer<std::optional<ResolvedPaper>> {
-		const auto paper = peer->wallPaper();
+	) | rpl::map([=]() -> rpl::producer<const Data::WallPaper*> {
+		return WallPaperResolved(&peer->owner(), peer->wallPaper());
+	}) | rpl::flatten_latest();
+}
+
+[[nodiscard]] rpl::producer<std::optional<ResolvedPaper>> PeerWallPaperValue(
+		not_null<PeerData*> peer) {
+	return PeerWallPaperMapped(
+		peer
+	) | rpl::map([=](const Data::WallPaper *paper)
+	-> rpl::producer<std::optional<ResolvedPaper>> {
 		const auto single = [](std::optional<ResolvedPaper> value) {
 			return rpl::single(std::move(value));
 		};
@@ -156,6 +166,49 @@ struct ResolvedTheme {
 }
 
 } // namespace
+
+rpl::producer<const Data::WallPaper*> WallPaperResolved(
+		not_null<Data::Session*> owner,
+		const Data::WallPaper *paper) {
+	const auto id = paper ? paper->emojiId() : QString();
+	if (id.isEmpty()) {
+		return rpl::single(paper);
+	}
+	const auto themes = &owner->cloudThemes();
+	auto fromThemes = [=](bool force)
+	-> rpl::producer<const Data::WallPaper*> {
+		if (themes->chatThemes().empty() && !force) {
+			return nullptr;
+		}
+		return Window::Theme::IsNightModeValue(
+		) | rpl::map([=](bool dark) -> const Data::WallPaper* {
+			const auto &list = themes->chatThemes();
+			const auto i = ranges::find(
+				list,
+				id,
+				&Data::CloudTheme::emoticon);
+			if (i != end(list)) {
+				using Type = Data::CloudThemeType;
+				const auto type = dark ? Type::Dark : Type::Light;
+				const auto j = i->settings.find(type);
+				if (j != end(i->settings) && j->second.paper) {
+					return &*j->second.paper;
+				}
+			}
+			return nullptr;
+		});
+	};
+	if (auto result = fromThemes(false)) {
+		return result;
+	}
+	themes->refreshChatThemes();
+	return rpl::single<const Data::WallPaper*>(
+		nullptr
+	) | rpl::then(themes->chatThemesUpdated(
+	) | rpl::take(1) | rpl::map([=] {
+		return fromThemes(true);
+	}) | rpl::flatten_latest());
+}
 
 AbstractSectionWidget::AbstractSectionWidget(
 	QWidget *parent,
@@ -307,7 +360,7 @@ void SectionWidget::PaintBackground(
 	const auto paintCache = [&](const Ui::CachedBackground &cache) {
 		const auto to = QRect(
 			QPoint(cache.x, cache.y),
-			cache.pixmap.size() / cIntRetinaFactor());
+			cache.pixmap.size() / style::DevicePixelRatio());
 		if (cache.waitingForNegativePattern) {
 			// While we wait for pattern being loaded we paint just gradient.
 			// But in case of negative patter opacity we just fill-black.
@@ -366,8 +419,8 @@ void SectionWidget::PaintBackground(
 		const auto top = clip.top();
 		const auto right = clip.left() + clip.width();
 		const auto bottom = clip.top() + clip.height();
-		const auto w = tiled.width() / cRetinaFactor();
-		const auto h = tiled.height() / cRetinaFactor();
+		const auto w = tiled.width() / float64(style::DevicePixelRatio());
+		const auto h = tiled.height() / float64(style::DevicePixelRatio());
 		const auto sx = qFloor(left / w);
 		const auto sy = qFloor(top / h);
 		const auto cx = qCeil(right / w);
@@ -404,7 +457,11 @@ void SectionWidget::showFinished() {
 	showChildren();
 	showFinishedHook();
 
-	setInnerFocus();
+	if (isAncestorOf(window()->focusWidget())) {
+		setInnerFocus();
+	} else {
+		controller()->widget()->setInnerFocus();
+	}
 }
 
 rpl::producer<int> SectionWidget::desiredHeight() const {
@@ -475,19 +532,20 @@ bool ShowReactPremiumError(
 		not_null<SessionController*> controller,
 		not_null<HistoryItem*> item,
 		const Data::ReactionId &id) {
-	if (controller->session().premium()
-		|| ranges::contains(item->chosenReactions(), id)) {
-		return false;
-	}
-	const auto &list = controller->session().data().reactions().list(
-		Data::Reactions::Type::Active);
-	const auto i = ranges::find(list, id, &Data::Reaction::id);
-	if (i == end(list) || !i->premium) {
-		if (!id.custom()) {
+	if (item->reactionsAreTags()) {
+		if (controller->session().premium()) {
 			return false;
 		}
+		ShowPremiumPreviewBox(controller, PremiumFeature::TagsForMessages);
+		return true;
+	} else if (controller->session().premium()
+		|| ranges::contains(item->chosenReactions(), id)
+		|| item->history()->peer->isBroadcast()) {
+		return false;
+	} else if (!id.custom()) {
+		return false;
 	}
-	ShowPremiumPreviewBox(controller, PremiumPreview::InfiniteReactions);
+	ShowPremiumPreviewBox(controller, PremiumFeature::InfiniteReactions);
 	return true;
 }
 

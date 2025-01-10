@@ -22,6 +22,7 @@ struct ReactionId;
 
 namespace Ui {
 struct BubbleRounding;
+class RoundCheckbox;
 } // namespace Ui
 
 namespace HistoryView {
@@ -44,6 +45,12 @@ struct LogEntryOriginal
 	std::unique_ptr<WebPage> page;
 };
 
+struct Factcheck
+: public RuntimeComponent<Factcheck, Element> {
+	std::unique_ptr<WebPage> page;
+	bool expanded = false;
+};
+
 struct PsaTooltipState : public RuntimeComponent<PsaTooltipState, Element> {
 	QString type;
 	mutable ClickHandlerPtr link;
@@ -55,10 +62,6 @@ struct BottomRippleMask {
 	QImage image;
 	int shift = 0;
 };
-
-[[nodiscard]] style::color FromNameFg(
-	const Ui::ChatPaintContext &context,
-	PeerId peerId);
 
 class Message final : public Element {
 public:
@@ -75,8 +78,7 @@ public:
 	[[nodiscard]] const HistoryMessageEdited *displayedEditBadge() const;
 	[[nodiscard]] HistoryMessageEdited *displayedEditBadge();
 
-	[[nodiscard]] bool embedReactionsInBottomInfo() const;
-	[[nodiscard]] bool embedReactionsInBubble() const;
+	bool embedReactionsInBubble() const override;
 
 	int marginTop() const override;
 	int marginBottom() const override;
@@ -99,6 +101,9 @@ public:
 		QPoint point,
 		InfoDisplayType type) const override;
 	TextForMimeData selectedText(TextSelection selection) const override;
+	SelectedQuote selectedQuote(TextSelection selection) const override;
+	TextSelection selectionFromQuote(
+		const SelectedQuote &quote) const override;
 	TextSelection adjustSelection(
 		TextSelection selection,
 		TextSelectType type) const override;
@@ -126,6 +131,7 @@ public:
 	int minWidthForMedia() const override;
 	bool hasFastReply() const override;
 	bool displayFastReply() const override;
+	bool displayFastForward() const override;
 	bool displayRightActionComments() const;
 	std::optional<QSize> rightActionSize() const override;
 	void drawRightAction(
@@ -137,8 +143,9 @@ public:
 	[[nodiscard]] ClickHandlerPtr rightActionLink(
 		std::optional<QPoint> pressPoint) const override;
 	[[nodiscard]] TimeId displayedEditDate() const override;
-	[[nodiscard]] HistoryMessageReply *displayedReply() const override;
 	[[nodiscard]] bool toggleSelectionByHandlerClick(
+		const ClickHandlerPtr &handler) const override;
+	[[nodiscard]] bool allowTextSelectionByHandler(
 		const ClickHandlerPtr &handler) const override;
 	[[nodiscard]] int infoWidth() const override;
 	[[nodiscard]] int bottomInfoFirstLineWidth() const override;
@@ -153,11 +160,12 @@ public:
 		const base::flat_set<UserId> &changes) override;
 
 	void animateReaction(Ui::ReactionFlyAnimationArgs &&args) override;
-	auto takeReactionAnimations()
-	-> base::flat_map<
-		Data::ReactionId,
-		std::unique_ptr<Ui::ReactionFlyAnimation>> override;
 
+	void animateEffect(Ui::ReactionFlyAnimationArgs &&args) override;
+	auto takeEffectAnimation()
+	-> std::unique_ptr<Ui::ReactionFlyAnimation> override;
+
+	QRect effectIconGeometry() const override;
 	QRect innerGeometry() const override;
 	[[nodiscard]] BottomRippleMask bottomRippleMask(int buttonHeight) const;
 
@@ -169,12 +177,12 @@ private:
 	struct FromNameStatus;
 	struct RightAction;
 
+	bool updateBottomInfo();
+
 	void initLogEntryOriginal();
 	void initPsa();
 	void fromNameUpdated(int width) const;
 
-	[[nodiscard]] bool showForwardsFromSender(
-		not_null<HistoryMessageForwarded*> forwarded) const;
 	[[nodiscard]] TextSelection skipTextSelection(
 		TextSelection selection) const;
 	[[nodiscard]] TextSelection unskipTextSelection(
@@ -266,18 +274,19 @@ private:
 	[[nodiscard]] int visibleTextLength() const;
 	[[nodiscard]] int visibleMediaTextLength() const;
 	[[nodiscard]] bool needInfoDisplay() const;
+	[[nodiscard]] bool invertMedia() const;
 
 	[[nodiscard]] bool isPinnedContext() const;
 
 	[[nodiscard]] bool displayFastShare() const;
 	[[nodiscard]] bool displayGoToOriginal() const;
 	[[nodiscard]] ClickHandlerPtr fastReplyLink() const;
+	[[nodiscard]] ClickHandlerPtr fastForwardLink() const;
 	[[nodiscard]] ClickHandlerPtr prepareRightActionLink() const;
 
 	void ensureRightAction() const;
 	void refreshTopicButton();
-	void refreshInfoSkipBlock();
-	[[nodiscard]] int plainMaxWidth() const;
+	void refreshInfoSkipBlock(HistoryItem *textItem);
 	[[nodiscard]] int monospaceMaxWidth() const;
 
 	void validateInlineKeyboard(HistoryMessageReplyMarkup *markup);
@@ -285,27 +294,34 @@ private:
 	[[nodiscard]] int viewButtonHeight() const;
 
 	[[nodiscard]] WebPage *logEntryOriginal() const;
+	[[nodiscard]] WebPage *factcheckBlock() const;
 
 	[[nodiscard]] ClickHandlerPtr createGoToCommentsLink() const;
 	[[nodiscard]] ClickHandlerPtr psaTooltipLink() const;
 	void psaTooltipToggled(bool shown) const;
 
 	void refreshRightBadge();
-	void refreshReactions();
 	void validateFromNameText(PeerData *from) const;
+	void validateForwardedNameText(HistoryItem *item) const;
 
 	mutable std::unique_ptr<RightAction> _rightAction;
 	mutable ClickHandlerPtr _fastReplyLink;
+	mutable ClickHandlerPtr _fastForwardLink;
 	mutable std::unique_ptr<ViewButton> _viewButton;
-	std::unique_ptr<Reactions::InlineList> _reactions;
 	std::unique_ptr<TopicButton> _topicButton;
 	mutable std::unique_ptr<CommentsButton> _comments;
 
 	mutable Ui::Text::String _fromName;
 	mutable std::unique_ptr<FromNameStatus> _fromNameStatus;
+	mutable std::unique_ptr<Ui::RoundCheckbox> _selectionRoundCheckbox;
+	mutable bool _previousMode = false;
 	Ui::Text::String _rightBadge;
 	mutable int _fromNameVersion = 0;
-	int _bubbleWidthLimit = 0;
+	uint32 _bubbleWidthLimit : 28 = 0;
+	uint32 _invertMedia : 1 = 0;
+	uint32 _hideReply : 1 = 0;
+	uint32 _rightBadgeHasBoosts : 1 = 0;
+	uint32 _postShowingAuthor : 1 = 0;
 
 	BottomInfo _bottomInfo;
 

@@ -10,6 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_compare.h"
 #include "base/timer.h"
 #include "base/weak_ptr.h"
+#include "ui/effects/animations.h"
+#include "ui/text/text_custom_emoji.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/rp_widget.h"
 
@@ -22,22 +24,17 @@ struct DialogsStoriesList;
 
 namespace Ui {
 class PopupMenu;
+class DynamicImage;
 struct OutlineSegment;
 class ImportantTooltip;
 } // namespace Ui
 
 namespace Dialogs::Stories {
 
-class Thumbnail {
-public:
-	[[nodiscard]] virtual QImage image(int size) = 0;
-	virtual void subscribeToUpdates(Fn<void()> callback) = 0;
-};
-
 struct Element {
 	uint64 id = 0;
 	QString name;
-	std::shared_ptr<Thumbnail> thumbnail;
+	std::shared_ptr<Ui::DynamicImage> thumbnail;
 	uint32 count : 15 = 0;
 	uint32 unreadCount : 15 = 0;
 	uint32 skipSmall : 1 = 0;
@@ -49,6 +46,7 @@ struct Element {
 
 struct Content {
 	std::vector<Element> elements;
+	int total = 0;
 
 	friend inline bool operator==(
 		const Content &a,
@@ -74,7 +72,7 @@ public:
 		style::align alignSmall,
 		QRect geometryFull = QRect());
 	void setShowTooltip(
-		not_null<QWidget*> tooltipParent,
+		not_null<Ui::RpWidget*> tooltipParent,
 		rpl::producer<bool> shown,
 		Fn<void()> hide);
 	void raiseTooltip();
@@ -96,7 +94,7 @@ public:
 	[[nodiscard]] rpl::producer<uint64> clicks() const;
 	[[nodiscard]] rpl::producer<ShowMenuRequest> showMenuRequests() const;
 	[[nodiscard]] rpl::producer<bool> toggleExpandedRequests() const;
-	[[nodiscard]] rpl::producer<> entered() const;
+	//[[nodiscard]] rpl::producer<> entered() const;
 	[[nodiscard]] rpl::producer<> loadMoreRequests() const;
 
 	[[nodiscard]] auto verticalScrollEvents() const
@@ -125,7 +123,7 @@ private:
 	};
 
 	void showContent(Content &&content);
-	void enterEventHook(QEnterEvent *e) override;
+	//void enterEventHook(QEnterEvent *e) override;
 	void resizeEvent(QResizeEvent *e) override;
 	void paintEvent(QPaintEvent *e) override;
 	void wheelEvent(QWheelEvent *e) override;
@@ -175,7 +173,7 @@ private:
 	rpl::event_stream<uint64> _clicks;
 	rpl::event_stream<ShowMenuRequest> _showMenuRequests;
 	rpl::event_stream<bool> _toggleExpandedRequests;
-	rpl::event_stream<> _entered;
+	//rpl::event_stream<> _entered;
 	rpl::event_stream<> _loadMoreRequests;
 	rpl::event_stream<> _collapsedGeometryChanged;
 

@@ -80,6 +80,46 @@ TextWithEntities PrepareText(
 	}));
 }
 
+std::optional<MTPMessageReplyHeader> PrepareLogReply(
+		const MTPMessageReplyHeader *header) {
+	if (!header) {
+		return {};
+	}
+	return header->match([&](const MTPDmessageReplyHeader &data)
+	-> std::optional<MTPMessageReplyHeader> {
+		if (data.vreply_to_peer_id()) {
+			return *header;
+		} else if (data.is_forum_topic()) {
+			const auto topId = data.vreply_to_top_id().value_or(
+				data.vreply_to_msg_id().value_or_empty());
+			if (topId) {
+				using Flag = MTPDmessageReplyHeader::Flag;
+				const auto removeFlags = Flag::f_reply_from
+					| Flag::f_reply_media
+					| Flag::f_reply_to_scheduled
+					| Flag::f_quote
+					| Flag::f_quote_entities
+					| Flag::f_quote_offset
+					| Flag::f_quote_text;
+				return MTP_messageReplyHeader(
+					MTP_flags((data.vflags().v & ~removeFlags)
+						| Flag::f_reply_to_msg_id),
+					MTP_int(topId),
+					MTPPeer(), // reply_to_peer_id
+					MTPMessageFwdHeader(), // reply_from
+					MTPMessageMedia(), // reply_media
+					MTP_int(topId),
+					MTPstring(), // quote_text
+					MTPVector<MTPMessageEntity>(), // quote_entities
+					MTPint()); // quote_offset
+			}
+		}
+		return {};
+	}, [&](const MTPDmessageReplyStoryHeader &data) {
+		return std::optional<MTPMessageReplyHeader>();
+	});
+}
+
 MTPMessage PrepareLogMessage(const MTPMessage &message, TimeId newDate) {
 	return message.match([&](const MTPDmessageEmpty &data) {
 		return MTP_messageEmpty(
@@ -87,39 +127,51 @@ MTPMessage PrepareLogMessage(const MTPMessage &message, TimeId newDate) {
 			data.vid(),
 			data.vpeer_id() ? *data.vpeer_id() : MTPPeer());
 	}, [&](const MTPDmessageService &data) {
-		const auto removeFlags = MTPDmessageService::Flag::f_out
-			| MTPDmessageService::Flag::f_post
-			| MTPDmessageService::Flag::f_reply_to
-			| MTPDmessageService::Flag::f_ttl_period;
+		using Flag = MTPDmessageService::Flag;
+		const auto reply = PrepareLogReply(data.vreply_to());
+		const auto removeFlags = Flag::f_out
+			| Flag::f_post
+			| Flag::f_reactions_are_possible
+			| Flag::f_reactions
+			| Flag::f_ttl_period
+			| (reply ? Flag() : Flag::f_reply_to);
 		return MTP_messageService(
 			MTP_flags(data.vflags().v & ~removeFlags),
 			data.vid(),
 			data.vfrom_id() ? *data.vfrom_id() : MTPPeer(),
 			data.vpeer_id(),
-			MTPMessageReplyHeader(),
+			reply.value_or(MTPMessageReplyHeader()),
 			MTP_int(newDate),
 			data.vaction(),
+			MTPMessageReactions(),
 			MTPint()); // ttl_period
 	}, [&](const MTPDmessage &data) {
-		const auto removeFlags = MTPDmessage::Flag::f_out
-			| MTPDmessage::Flag::f_post
-			| MTPDmessage::Flag::f_reply_to
-			| MTPDmessage::Flag::f_replies
-			| MTPDmessage::Flag::f_edit_date
-			| MTPDmessage::Flag::f_grouped_id
-			| MTPDmessage::Flag::f_views
-			| MTPDmessage::Flag::f_forwards
-			//| MTPDmessage::Flag::f_reactions
-			| MTPDmessage::Flag::f_restriction_reason
-			| MTPDmessage::Flag::f_ttl_period;
+		using Flag = MTPDmessage::Flag;
+		const auto reply = PrepareLogReply(data.vreply_to());
+		const auto removeFlags = Flag::f_out
+			| Flag::f_post
+			| (reply ? Flag() : Flag::f_reply_to)
+			| Flag::f_replies
+			| Flag::f_edit_date
+			| Flag::f_grouped_id
+			| Flag::f_views
+			| Flag::f_forwards
+			//| Flag::f_reactions
+			| Flag::f_restriction_reason
+			| Flag::f_ttl_period
+			| Flag::f_factcheck
+			| Flag::f_report_delivery_until_date;
 		return MTP_message(
 			MTP_flags(data.vflags().v & ~removeFlags),
 			data.vid(),
 			data.vfrom_id() ? *data.vfrom_id() : MTPPeer(),
+			MTPint(), // from_boosts_applied
 			data.vpeer_id(),
+			MTPPeer(), // saved_peer_id
 			data.vfwd_from() ? *data.vfwd_from() : MTPMessageFwdHeader(),
 			MTP_long(data.vvia_bot_id().value_or_empty()),
-			MTPMessageReplyHeader(),
+			MTP_long(data.vvia_business_bot_id().value_or_empty()),
+			reply.value_or(MTPMessageReplyHeader()),
 			MTP_int(newDate),
 			data.vmessage(),
 			data.vmedia() ? *data.vmedia() : MTPMessageMedia(),
@@ -135,7 +187,11 @@ MTPMessage PrepareLogMessage(const MTPMessage &message, TimeId newDate) {
 			MTP_long(0), // grouped_id
 			MTPMessageReactions(),
 			MTPVector<MTPRestrictionReason>(),
-			MTPint()); // ttl_period
+			MTPint(), // ttl_period
+			MTPint(), // quick_reply_shortcut_id
+			MTP_long(data.veffect().value_or_empty()),
+			MTPFactCheck(),
+			MTPint()); // report_delivery_until_date
 	});
 }
 
@@ -499,7 +555,7 @@ auto GenerateParticipantString(
 			data,
 		});
 	}
-	const auto username = peer->userName();
+	const auto username = peer->username();
 	if (username.isEmpty()) {
 		return name;
 	}
@@ -740,8 +796,9 @@ void GenerateItems(
 	using LogBan = MTPDchannelAdminLogEventActionParticipantToggleBan;
 	using LogPromote = MTPDchannelAdminLogEventActionParticipantToggleAdmin;
 	using LogSticker = MTPDchannelAdminLogEventActionChangeStickerSet;
-	using LogPreHistory =
-		MTPDchannelAdminLogEventActionTogglePreHistoryHidden;
+	using LogEmoji = MTPDchannelAdminLogEventActionChangeEmojiStickerSet;
+	using LogPreHistory
+		= MTPDchannelAdminLogEventActionTogglePreHistoryHidden;
 	using LogPermissions = MTPDchannelAdminLogEventActionDefaultBannedRights;
 	using LogPoll = MTPDchannelAdminLogEventActionStopPoll;
 	using LogDiscussion = MTPDchannelAdminLogEventActionChangeLinkedChat;
@@ -751,19 +808,19 @@ void GenerateItems(
 	using LogDiscardCall = MTPDchannelAdminLogEventActionDiscardGroupCall;
 	using LogMute = MTPDchannelAdminLogEventActionParticipantMute;
 	using LogUnmute = MTPDchannelAdminLogEventActionParticipantUnmute;
-	using LogCallSetting =
-		MTPDchannelAdminLogEventActionToggleGroupCallSetting;
-	using LogJoinByInvite =
-		MTPDchannelAdminLogEventActionParticipantJoinByInvite;
-	using LogInviteDelete =
-		MTPDchannelAdminLogEventActionExportedInviteDelete;
-	using LogInviteRevoke =
-		MTPDchannelAdminLogEventActionExportedInviteRevoke;
+	using LogCallSetting
+		= MTPDchannelAdminLogEventActionToggleGroupCallSetting;
+	using LogJoinByInvite
+		= MTPDchannelAdminLogEventActionParticipantJoinByInvite;
+	using LogInviteDelete
+		= MTPDchannelAdminLogEventActionExportedInviteDelete;
+	using LogInviteRevoke
+		= MTPDchannelAdminLogEventActionExportedInviteRevoke;
 	using LogInviteEdit = MTPDchannelAdminLogEventActionExportedInviteEdit;
 	using LogVolume = MTPDchannelAdminLogEventActionParticipantVolume;
 	using LogTTL = MTPDchannelAdminLogEventActionChangeHistoryTTL;
-	using LogJoinByRequest =
-		MTPDchannelAdminLogEventActionParticipantJoinByRequest;
+	using LogJoinByRequest
+		= MTPDchannelAdminLogEventActionParticipantJoinByRequest;
 	using LogNoForwards = MTPDchannelAdminLogEventActionToggleNoForwards;
 	using LogSendMessage = MTPDchannelAdminLogEventActionSendMessage;
 	using LogChangeAvailableReactions = MTPDchannelAdminLogEventActionChangeAvailableReactions;
@@ -774,6 +831,12 @@ void GenerateItems(
 	using LogDeleteTopic = MTPDchannelAdminLogEventActionDeleteTopic;
 	using LogPinTopic = MTPDchannelAdminLogEventActionPinTopic;
 	using LogToggleAntiSpam = MTPDchannelAdminLogEventActionToggleAntiSpam;
+	using LogChangePeerColor = MTPDchannelAdminLogEventActionChangePeerColor;
+	using LogChangeProfilePeerColor = MTPDchannelAdminLogEventActionChangeProfilePeerColor;
+	using LogChangeWallpaper = MTPDchannelAdminLogEventActionChangeWallpaper;
+	using LogChangeEmojiStatus = MTPDchannelAdminLogEventActionChangeEmojiStatus;
+	using LogToggleSignatureProfiles = MTPDchannelAdminLogEventActionToggleSignatureProfiles;
+	using LogParticipantSubExtend = MTPDchannelAdminLogEventActionParticipantSubExtend;
 
 	const auto session = &history->session();
 	const auto id = event.vid().v;
@@ -800,13 +863,12 @@ void GenerateItems(
 		auto message = PreparedServiceText{ text };
 		message.links.push_back(fromLink);
 		addPart(
-			history->makeMessage(
-				history->nextNonHistoryEntryId(),
-				MessageFlag::AdminLogEntry,
-				date,
-				std::move(message),
-				peerToUser(from->id),
-				photo),
+			history->makeMessage({
+				.id = history->nextNonHistoryEntryId(),
+				.flags = MessageFlag::AdminLogEntry,
+				.from = from->id,
+				.date = date,
+			}, std::move(message), photo),
 			0,
 			realId);
 	};
@@ -825,23 +887,12 @@ void GenerateItems(
 	};
 
 	const auto makeSimpleTextMessage = [&](TextWithEntities &&text) {
-		const auto bodyFlags = MessageFlag::HasFromId
-			| MessageFlag::AdminLogEntry;
-		const auto bodyReplyTo = FullReplyTo();
-		const auto bodyViaBotId = UserId();
-		const auto bodyGroupedId = uint64();
-		return history->makeMessage(
-			history->nextNonHistoryEntryId(),
-			bodyFlags,
-			bodyReplyTo,
-			bodyViaBotId,
-			date,
-			peerToUser(from->id),
-			QString(),
-			std::move(text),
-			MTP_messageMediaEmpty(),
-			HistoryMessageMarkupData(),
-			bodyGroupedId);
+		return history->makeMessage({
+			.id = history->nextNonHistoryEntryId(),
+			.flags = MessageFlag::HasFromId | MessageFlag::AdminLogEntry,
+			.from = from->id,
+			.date = date,
+		}, std::move(text), MTP_messageMediaEmpty());
 	};
 
 	const auto addSimpleTextMessage = [&](TextWithEntities &&text) {
@@ -963,13 +1014,11 @@ void GenerateItems(
 					Ui::Text::WithEntities);
 			addSimpleServiceMessage(text, realId);
 
-			const auto detachExistingItem = false;
 			addPart(
 				history->createItem(
 					history->nextNonHistoryEntryId(),
 					PrepareLogMessage(action.vmessage(), date),
-					MessageFlag::AdminLogEntry,
-					detachExistingItem),
+					MessageFlag::AdminLogEntry),
 				ExtractSentDate(action.vmessage()),
 				realId);
 		}, [&](const auto &) {
@@ -1018,12 +1067,10 @@ void GenerateItems(
 				Ui::Text::WithEntities);
 		addSimpleServiceMessage(text, realId);
 
-		const auto detachExistingItem = false;
 		const auto body = history->createItem(
 			history->nextNonHistoryEntryId(),
 			PrepareLogMessage(action.vnew_message(), date),
-			MessageFlag::AdminLogEntry,
-			detachExistingItem);
+			MessageFlag::AdminLogEntry);
 		if (oldValue.text.isEmpty()) {
 			oldValue = PrepareText(
 				QString(),
@@ -1048,13 +1095,11 @@ void GenerateItems(
 			Ui::Text::WithEntities);
 		addSimpleServiceMessage(text, realId);
 
-		const auto detachExistingItem = false;
 		addPart(
 			history->createItem(
 				history->nextNonHistoryEntryId(),
 				PrepareLogMessage(action.vmessage(), date),
-				MessageFlag::AdminLogEntry,
-				detachExistingItem),
+				MessageFlag::AdminLogEntry),
 			ExtractSentDate(action.vmessage()),
 			realId);
 	};
@@ -1144,12 +1189,56 @@ void GenerateItems(
 			auto message = PreparedServiceText{ text };
 			message.links.push_back(fromLink);
 			message.links.push_back(setLink);
-			addPart(history->makeMessage(
-				history->nextNonHistoryEntryId(),
-				MessageFlag::AdminLogEntry,
-				date,
-				std::move(message),
-				peerToUser(from->id)));
+			addPart(history->makeMessage({
+				.id = history->nextNonHistoryEntryId(),
+				.flags = MessageFlag::AdminLogEntry,
+				.from = from->id,
+				.date = date,
+			}, std::move(message)));
+		}
+	};
+
+	const auto createChangeEmojiSet = [&](const LogEmoji &action) {
+		const auto set = action.vnew_stickerset();
+		const auto removed = (set.type() == mtpc_inputStickerSetEmpty);
+		if (removed) {
+			const auto text = tr::lng_admin_log_removed_emoji_group(
+				tr::now,
+				lt_from,
+				fromLinkText,
+				Ui::Text::WithEntities);
+			addSimpleServiceMessage(text);
+		} else {
+			const auto text = tr::lng_admin_log_changed_emoji_group(
+				tr::now,
+				lt_from,
+				fromLinkText,
+				lt_sticker_set,
+				Ui::Text::Link(
+					tr::lng_admin_log_changed_emoji_set(tr::now),
+					QString()),
+				Ui::Text::WithEntities);
+			const auto setLink = std::make_shared<LambdaClickHandler>([=](
+					ClickContext context) {
+				const auto my = context.other.value<ClickHandlerContext>();
+				if (const auto controller = my.sessionWindow.get()) {
+					controller->show(
+						Box<StickerSetBox>(
+							controller->uiShow(),
+							Data::FromInputSet(set),
+							Data::StickersType::Emoji),
+						Ui::LayerOption::CloseOther);
+				}
+			});
+			auto message = PreparedServiceText{ text };
+			message.links.push_back(fromLink);
+			message.links.push_back(setLink);
+			addPart(history->makeMessage({
+				.id = history->nextNonHistoryEntryId(),
+				.flags = MessageFlag::AdminLogEntry,
+				.from = from->id,
+				.date = date,
+			}, std::move(message)));
 		}
 	};
 
@@ -1184,13 +1273,11 @@ void GenerateItems(
 			Ui::Text::WithEntities);
 		addSimpleServiceMessage(text, realId);
 
-		const auto detachExistingItem = false;
 		addPart(
 			history->createItem(
 				history->nextNonHistoryEntryId(),
 				PrepareLogMessage(action.vmessage(), date),
-				MessageFlag::AdminLogEntry,
-				detachExistingItem),
+				MessageFlag::AdminLogEntry),
 			ExtractSentDate(action.vmessage()),
 			realId);
 	};
@@ -1225,12 +1312,12 @@ void GenerateItems(
 			auto message = PreparedServiceText{ text };
 			message.links.push_back(fromLink);
 			message.links.push_back(chatLink);
-			addPart(history->makeMessage(
-				history->nextNonHistoryEntryId(),
-				MessageFlag::AdminLogEntry,
-				date,
-				std::move(message),
-				peerToUser(from->id)));
+			addPart(history->makeMessage({
+				.id = history->nextNonHistoryEntryId(),
+				.flags = MessageFlag::AdminLogEntry,
+				.from = from->id,
+				.date = date,
+			}, std::move(message)));
 		}
 	};
 
@@ -1321,12 +1408,12 @@ void GenerateItems(
 		auto message = PreparedServiceText{ text };
 		message.links.push_back(fromLink);
 		message.links.push_back(link);
-		addPart(history->makeMessage(
-			history->nextNonHistoryEntryId(),
-			MessageFlag::AdminLogEntry,
-			date,
-			std::move(message),
-			peerToUser(from->id)));
+		addPart(history->makeMessage({
+			.id = history->nextNonHistoryEntryId(),
+			.flags = MessageFlag::AdminLogEntry,
+			.from = from->id,
+			.date = date,
+		}, std::move(message)));
 	};
 
 	const auto createParticipantMute = [&](const LogMute &data) {
@@ -1396,13 +1483,12 @@ void GenerateItems(
 		if (additional) {
 			message.links.push_back(std::move(additional));
 		}
-		addPart(history->makeMessage(
-			history->nextNonHistoryEntryId(),
-			MessageFlag::AdminLogEntry,
-			date,
-			std::move(message),
-			peerToUser(from->id),
-			nullptr));
+		addPart(history->makeMessage({
+			.id = history->nextNonHistoryEntryId(),
+			.flags = MessageFlag::AdminLogEntry,
+			.from = from->id,
+			.date = date,
+		}, std::move(message)));
 	};
 
 	const auto createParticipantJoinByInvite = [&](
@@ -1571,13 +1657,11 @@ void GenerateItems(
 			Ui::Text::WithEntities);
 		addSimpleServiceMessage(text, realId);
 
-		const auto detachExistingItem = false;
 		addPart(
 			history->createItem(
 				history->nextNonHistoryEntryId(),
 				PrepareLogMessage(data.vmessage(), date),
-				MessageFlag::AdminLogEntry,
-				detachExistingItem),
+				MessageFlag::AdminLogEntry),
 			ExtractSentDate(data.vmessage()),
 			realId);
 	};
@@ -1822,6 +1906,219 @@ void GenerateItems(
 		addSimpleServiceMessage(text);
 	};
 
+	const auto createColorChange = [&](
+			const MTPPeerColor &was,
+			const MTPPeerColor &now,
+			const auto &colorPhrase,
+			const auto &setEmoji,
+			const auto &removeEmoji,
+			const auto &changeEmoji) {
+		const auto prevColor = was.data().vcolor();
+		const auto nextColor = now.data().vcolor();
+		if (prevColor != nextColor) {
+			const auto wrap = [&](tl::conditional<MTPint> value) {
+				return value
+					? value->v
+					: Data::DecideColorIndex(history->peer->id);
+			};
+			const auto text = colorPhrase(
+				tr::now,
+				lt_from,
+				fromLinkText,
+				lt_previous,
+				{ '#' + QString::number(wrap(prevColor) + 1) },
+				lt_color,
+				{ '#' + QString::number(wrap(nextColor) + 1) },
+				Ui::Text::WithEntities);
+			addSimpleServiceMessage(text);
+		}
+		const auto prevEmoji = was.data().vbackground_emoji_id().value_or_empty();
+		const auto nextEmoji = now.data().vbackground_emoji_id().value_or_empty();
+		if (prevEmoji != nextEmoji) {
+			const auto text = !prevEmoji
+				? setEmoji(
+					tr::now,
+					lt_from,
+					fromLinkText,
+					lt_emoji,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(nextEmoji)),
+					Ui::Text::WithEntities)
+				: !nextEmoji
+				? removeEmoji(
+					tr::now,
+					lt_from,
+					fromLinkText,
+					lt_emoji,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(prevEmoji)),
+					Ui::Text::WithEntities)
+				: changeEmoji(
+					tr::now,
+					lt_from,
+					fromLinkText,
+					lt_previous,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(prevEmoji)),
+					lt_emoji,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(nextEmoji)),
+					Ui::Text::WithEntities);
+			addSimpleServiceMessage(text);
+		}
+	};
+
+	const auto createChangePeerColor = [&](const LogChangePeerColor &data) {
+		createColorChange(
+			data.vprev_value(),
+			data.vnew_value(),
+			tr::lng_admin_log_change_color,
+			tr::lng_admin_log_set_background_emoji,
+			tr::lng_admin_log_removed_background_emoji,
+			tr::lng_admin_log_change_background_emoji);
+	};
+
+	const auto createChangeProfilePeerColor = [&](const LogChangeProfilePeerColor &data) {
+		const auto group = channel->isMegagroup();
+		createColorChange(
+			data.vprev_value(),
+			data.vnew_value(),
+			(group
+				? tr::lng_admin_log_change_profile_color_group
+				: tr::lng_admin_log_change_profile_color),
+			(group
+				? tr::lng_admin_log_set_profile_background_emoji_group
+				: tr::lng_admin_log_set_profile_background_emoji),
+			(group
+				? tr::lng_admin_log_removed_profile_background_emoji_group
+				: tr::lng_admin_log_removed_profile_background_emoji),
+			(group
+				? tr::lng_admin_log_change_profile_background_emoji_group
+				: tr::lng_admin_log_change_profile_background_emoji));
+	};
+
+	const auto createChangeWallpaper = [&](const LogChangeWallpaper &data) {
+		addSimpleServiceMessage(tr::lng_admin_log_change_wallpaper(
+			tr::now,
+			lt_from,
+			fromLinkText,
+			Ui::Text::WithEntities));
+	};
+
+	const auto createChangeEmojiStatus = [&](const LogChangeEmojiStatus &data) {
+		const auto parse = [](const MTPEmojiStatus &status) {
+			return status.match([](
+					const MTPDemojiStatus &data) {
+				return data.vdocument_id().v;
+			}, [](const MTPDemojiStatusEmpty &) {
+				return DocumentId();
+			}, [](const MTPDemojiStatusUntil &data) {
+				return data.vdocument_id().v;
+			});
+		};
+		const auto prevEmoji = parse(data.vprev_value());
+		const auto nextEmoji = parse(data.vnew_value());
+		const auto nextUntil = data.vnew_value().match([](
+				const MTPDemojiStatusUntil &data) {
+			return data.vuntil().v;
+		}, [](const auto &) { return TimeId(); });
+
+		const auto text = !prevEmoji
+			? (nextUntil
+				? tr::lng_admin_log_set_status_until(
+					tr::now,
+					lt_from,
+					fromLinkText,
+					lt_emoji,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(nextEmoji)),
+					lt_date,
+					TextWithEntities{
+						langDateTime(base::unixtime::parse(nextUntil)) },
+					Ui::Text::WithEntities)
+				: tr::lng_admin_log_set_status(
+					tr::now,
+					lt_from,
+					fromLinkText,
+					lt_emoji,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(nextEmoji)),
+					Ui::Text::WithEntities))
+			: !nextEmoji
+			? tr::lng_admin_log_removed_status(
+				tr::now,
+				lt_from,
+				fromLinkText,
+				lt_emoji,
+				Ui::Text::SingleCustomEmoji(
+					Data::SerializeCustomEmojiId(prevEmoji)),
+				Ui::Text::WithEntities)
+			: (nextUntil
+				? tr::lng_admin_log_change_status_until(
+					tr::now,
+					lt_from,
+					fromLinkText,
+					lt_previous,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(prevEmoji)),
+					lt_emoji,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(nextEmoji)),
+					lt_date,
+					TextWithEntities{
+						langDateTime(base::unixtime::parse(nextUntil)) },
+					Ui::Text::WithEntities)
+				: tr::lng_admin_log_change_status(
+					tr::now,
+					lt_from,
+					fromLinkText,
+					lt_previous,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(prevEmoji)),
+					lt_emoji,
+					Ui::Text::SingleCustomEmoji(
+						Data::SerializeCustomEmojiId(nextEmoji)),
+					Ui::Text::WithEntities));
+		addSimpleServiceMessage(text);
+	};
+
+	const auto createToggleSignatureProfiles = [&](const LogToggleSignatureProfiles &action) {
+		const auto enabled = (action.vnew_value().type() == mtpc_boolTrue);
+		const auto text = (enabled
+			? tr::lng_admin_log_signature_profiles_enabled
+			: tr::lng_admin_log_signature_profiles_disabled)(
+				tr::now,
+				lt_from,
+				fromLinkText,
+				Ui::Text::WithEntities);
+		addSimpleServiceMessage(text);
+	};
+
+	const auto createParticipantSubExtend = [&](const LogParticipantSubExtend &action) {
+		const auto participant = Api::ChatParticipant(
+			action.vnew_participant(),
+			channel);
+		if (!participant.subscriptionDate()) {
+			return;
+		}
+		const auto participantPeer = channel->owner().peer(participant.id());
+		const auto participantPeerLink = participantPeer->createOpenLink();
+		const auto participantPeerLinkText = Ui::Text::Link(
+			participantPeer->name(),
+			QString());
+		const auto parsed = base::unixtime::parse(
+			participant.subscriptionDate());
+		addServiceMessageWithLink(
+			tr::lng_admin_log_subscription_extend(
+				tr::now,
+				lt_name,
+				participantPeerLinkText,
+				lt_date,
+				{ langDateTimeFull(parsed) },
+				Ui::Text::WithEntities),
+			participantPeerLink);
+	};
+
 	action.match(
 		createChangeTitle,
 		createChangeAbout,
@@ -1838,6 +2135,7 @@ void GenerateItems(
 		createParticipantToggleBan,
 		createParticipantToggleAdmin,
 		createChangeStickerSet,
+		createChangeEmojiSet,
 		createTogglePreHistoryHidden,
 		createDefaultBannedRights,
 		createStopPoll,
@@ -1865,7 +2163,13 @@ void GenerateItems(
 		createEditTopic,
 		createDeleteTopic,
 		createPinTopic,
-		createToggleAntiSpam);
+		createToggleAntiSpam,
+		createChangePeerColor,
+		createChangeProfilePeerColor,
+		createChangeWallpaper,
+		createChangeEmojiStatus,
+		createToggleSignatureProfiles,
+		createParticipantSubExtend);
 }
 
 } // namespace AdminLog

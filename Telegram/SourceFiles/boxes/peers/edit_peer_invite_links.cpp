@@ -15,24 +15,25 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/session/session_show.h"
 #include "main/main_session.h"
 #include "api/api_invite_links.h"
+#include "settings/settings_credits_graphics.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/painter.h"
+#include "ui/rect.h"
+#include "ui/vertical_list.h"
 #include "lang/lang_keys.h"
 #include "ui/boxes/confirm_box.h"
 #include "boxes/peer_list_controllers.h"
 #include "boxes/peers/edit_peer_invite_link.h"
-#include "settings/settings_common.h" // AddDivider.
 #include "apiwrap.h"
 #include "base/weak_ptr.h"
 #include "base/unixtime.h"
 #include "styles/style_info.h"
 #include "styles/style_layers.h" // st::boxDividerLabel
-#include "styles/style_settings.h" // st::settingsDividerLabelPadding
 #include "styles/style_menu_icons.h"
 
-#include <xxhash.h>
+#include <QtSvg/QSvgRenderer>
 
 namespace {
 
@@ -42,6 +43,7 @@ enum class Color {
 	ExpireSoon,
 	Expired,
 	Revoked,
+	Subscription,
 
 	Count,
 };
@@ -63,8 +65,12 @@ struct InviteLinkAction {
 
 class Row;
 
+using SubscriptionRightLabel = Settings::SubscriptionRightLabel;
+
 class RowDelegate {
 public:
+	virtual std::optional<SubscriptionRightLabel> rightLabel(
+		int credits) const = 0;
 	virtual void rowUpdateRow(not_null<Row*> row) = 0;
 	virtual void rowPaintIcon(
 		QPainter &p,
@@ -94,6 +100,7 @@ public:
 		bool forceRound) override;
 
 	QSize rightActionSize() const override;
+	bool rightActionDisabled() const override;
 	QMargins rightActionMargins() const override;
 	void rightActionPaint(
 		Painter &p,
@@ -105,6 +112,7 @@ public:
 
 private:
 	const not_null<RowDelegate*> _delegate;
+	std::optional<SubscriptionRightLabel> _rightLabel;
 	InviteLinkData _data;
 	QString _status;
 	float64 _progressTillExpire = 0.;
@@ -112,12 +120,8 @@ private:
 
 };
 
-[[nodiscard]] uint64 ComputeRowId(const QString &link) {
-	return XXH64(link.data(), link.size() * sizeof(ushort), 0);
-}
-
 [[nodiscard]] uint64 ComputeRowId(const InviteLinkData &data) {
-	return ComputeRowId(data.link);
+	return UniqueRowIdFromString(data.link);
 }
 
 [[nodiscard]] float64 ComputeProgress(
@@ -144,7 +148,9 @@ private:
 [[nodiscard]] Color ComputeColor(
 		const InviteLinkData &link,
 		float64 progress) {
-	return link.revoked
+	return link.subscription
+		? Color::Subscription
+		: link.revoked
 		? Color::Revoked
 		: (progress >= 1.)
 		? Color::Expired
@@ -221,38 +227,11 @@ object_ptr<Ui::BoxContent> DeleteAllRevokedBox(
 	});
 }
 
-not_null<Ui::SettingsButton*> AddCreateLinkButton(
+[[nodiscard]] not_null<Ui::SettingsButton*> AddCreateLinkButton(
 		not_null<Ui::VerticalLayout*> container) {
-	const auto result = container->add(
-		object_ptr<Ui::SettingsButton>(
-			container,
-			tr::lng_group_invite_add(),
-			st::inviteLinkCreate),
+	return container->add(
+		MakeCreateLinkButton(container, tr::lng_group_invite_add()),
 		style::margins(0, st::inviteLinkCreateSkip, 0, 0));
-	const auto icon = Ui::CreateChild<Ui::RpWidget>(result);
-	icon->setAttribute(Qt::WA_TransparentForMouseEvents);
-	const auto size = st::inviteLinkCreateIconSize;
-	icon->resize(size, size);
-	result->heightValue(
-	) | rpl::start_with_next([=](int height) {
-		const auto &st = st::inviteLinkList.item;
-		icon->move(
-			st.photoPosition.x() + (st.photoSize - size) / 2,
-			(height - size) / 2);
-	}, icon->lifetime());
-	icon->paintRequest(
-	) | rpl::start_with_next([=] {
-		auto p = QPainter(icon);
-		p.setPen(Qt::NoPen);
-		p.setBrush(st::windowBgActive);
-		const auto rect = icon->rect();
-		{
-			auto hq = PainterHighQualityEnabler(p);
-			p.drawEllipse(rect);
-		}
-		st::inviteLinkCreateIcon.paintInCenter(p, rect);
-	}, icon->lifetime());
-	return result;
 }
 
 Row::Row(
@@ -264,11 +243,13 @@ Row::Row(
 , _data(data)
 , _progressTillExpire(ComputeProgress(data, now))
 , _color(ComputeColor(data, _progressTillExpire)) {
+	_rightLabel = _delegate->rightLabel(_data.subscription.credits);
 	setCustomStatus(ComputeStatus(data, now));
 }
 
 void Row::update(const InviteLinkData &data, TimeId now) {
 	_data = data;
+	_rightLabel = _delegate->rightLabel(_data.subscription.credits);
 	_progressTillExpire = ComputeProgress(data, now);
 	_color = ComputeColor(data, _progressTillExpire);
 	setCustomStatus(ComputeStatus(data, now));
@@ -339,12 +320,22 @@ PaintRoundImageCallback Row::generatePaintUserpicCallback(bool forceRound) {
 }
 
 QSize Row::rightActionSize() const {
+	if (_rightLabel) {
+		return _rightLabel->size;
+	}
 	return QSize(
 		st::inviteLinkThreeDotsIcon.width(),
 		st::inviteLinkThreeDotsIcon.height());
 }
 
+bool Row::rightActionDisabled() const {
+	return _rightLabel.has_value();
+}
+
 QMargins Row::rightActionMargins() const {
+	if (_rightLabel) {
+		return QMargins(0, 0, st::boxRowPadding.right(), 0);
+	}
 	return QMargins(
 		0,
 		(st::inviteLinkList.item.height - rightActionSize().height()) / 2,
@@ -359,6 +350,9 @@ void Row::rightActionPaint(
 		int outerWidth,
 		bool selected,
 		bool actionSelected) {
+	if (_rightLabel) {
+		return _rightLabel->draw(p, x, y, st::inviteLinkList.item.height);
+	}
 	(actionSelected
 		? st::inviteLinkThreeDotsIconOver
 		: st::inviteLinkThreeDotsIcon).paint(p, x, y, outerWidth);
@@ -388,6 +382,7 @@ public:
 		not_null<PeerListRow*> row) override;
 	Main::Session &session() const override;
 
+	std::optional<SubscriptionRightLabel> rightLabel(int) const override;
 	void rowUpdateRow(not_null<Row*> row) override;
 	void rowPaintIcon(
 		QPainter &p,
@@ -543,7 +538,7 @@ void LinksController::appendSlice(const InviteLinksSlice &slice) {
 }
 
 void LinksController::rowClicked(not_null<PeerListRow*> row) {
-	delegate()->peerListShowBox(
+	delegate()->peerListUiShow()->showBox(
 		ShowInviteLinkBox(_peer, static_cast<Row*>(row.get())->data()));
 }
 
@@ -579,25 +574,30 @@ base::unique_qptr<Ui::PopupMenu> LinksController::createRowContextMenu(
 		st::popupMenuWithIcons);
 	if (data.revoked) {
 		result->addAction(tr::lng_group_invite_context_delete(tr::now), [=] {
-			delegate()->peerListShowBox(DeleteLinkBox(_peer, _admin, link));
+			delegate()->peerListUiShow()->showBox(
+				DeleteLinkBox(_peer, _admin, link));
 		}, &st::menuIconDelete);
 	} else {
 		result->addAction(tr::lng_group_invite_context_copy(tr::now), [=] {
 			CopyInviteLink(delegate()->peerListUiShow(), link);
 		}, &st::menuIconCopy);
 		result->addAction(tr::lng_group_invite_context_share(tr::now), [=] {
-			delegate()->peerListShowBox(
+			delegate()->peerListUiShow()->showBox(
 				ShareInviteLinkBox(_peer, link));
 		}, &st::menuIconShare);
 		result->addAction(tr::lng_group_invite_context_qr(tr::now), [=] {
-			delegate()->peerListShowBox(
-				InviteLinkQrBox(link, tr::lng_group_invite_qr_about()));
+			delegate()->peerListUiShow()->showBox(InviteLinkQrBox(
+				nullptr,
+				link,
+				tr::lng_group_invite_qr_title(),
+				tr::lng_group_invite_qr_about()));
 		}, &st::menuIconQrCode);
 		result->addAction(tr::lng_group_invite_context_edit(tr::now), [=] {
-			delegate()->peerListShowBox(EditLinkBox(_peer, data));
+			delegate()->peerListUiShow()->showBox(EditLinkBox(_peer, data));
 		}, &st::menuIconEdit);
 		result->addAction(tr::lng_group_invite_context_revoke(tr::now), [=] {
-			delegate()->peerListShowBox(RevokeLinkBox(_peer, _admin, link));
+			delegate()->peerListUiShow()->showBox(
+				RevokeLinkBox(_peer, _admin, link));
 		}, &st::menuIconRemove);
 	}
 	return result;
@@ -628,7 +628,8 @@ void LinksController::updateRow(const InviteLinkData &data, TimeId now) {
 }
 
 bool LinksController::removeRow(const QString &link) {
-	if (const auto row = delegate()->peerListFindRow(ComputeRowId(link))) {
+	const auto id = UniqueRowIdFromString(link);
+	if (const auto row = delegate()->peerListFindRow(id)) {
 		delegate()->peerListRemoveRow(row);
 		return true;
 	}
@@ -668,6 +669,17 @@ void LinksController::expiringProgressTimer() {
 	}
 }
 
+std::optional<SubscriptionRightLabel> LinksController::rightLabel(
+		int credits) const {
+	if (credits > 0) {
+		return Settings::PaintSubscriptionRightLabelCallback(
+			&session(),
+			st::inviteLinkList.item,
+			credits);
+	}
+	return std::nullopt;
+}
+
 void LinksController::rowUpdateRow(not_null<Row*> row) {
 	delegate()->peerListUpdateRow(row);
 }
@@ -688,6 +700,7 @@ void LinksController::rowPaintIcon(
 		case Color::ExpireSoon: return &st::msgFile4Bg;
 		case Color::Expired: return &st::msgFile3Bg;
 		case Color::Revoked: return &st::windowSubTextFg;
+		case Color::Subscription: return &st::msgFile2Bg;
 		}
 		Unexpected("Color in LinksController::rowPaintIcon.");
 	}();
@@ -705,15 +718,25 @@ void LinksController::rowPaintIcon(
 		p.setBrush(*bg);
 		{
 			auto hq = PainterHighQualityEnabler(p);
-			auto rect = QRect(0, 0, inner, inner);
-			if (color == Color::Expiring || color == Color::ExpireSoon) {
-				rect = rect.marginsRemoved({ stroke, stroke, stroke, stroke });
-			}
+			const auto rect = QRect(0, 0, inner, inner)
+				- ((color == Color::Expiring || color == Color::ExpireSoon)
+					? Margins(stroke)
+					: Margins(0));
 			p.drawEllipse(rect);
 		}
-		(color == Color::Revoked
-			? st::inviteLinkRevokedIcon
-			: st::inviteLinkIcon).paintInCenter(p, { 0, 0, inner, inner });
+		if (color == Color::Subscription) {
+			auto svg = QSvgRenderer(u":/gui/links_subscription.svg"_q);
+			const auto r = QRect(
+				(inner - st::inviteLinkSubscriptionSize) / 2,
+				(inner - st::inviteLinkSubscriptionSize) / 2,
+				st::inviteLinkSubscriptionSize,
+				st::inviteLinkSubscriptionSize);
+			svg.render(&p, r);
+		} else {
+			(color == Color::Revoked
+				? st::inviteLinkRevokedIcon
+				: st::inviteLinkIcon).paintInCenter(p, Rect(Size(inner)));
+		}
 	}
 	p.drawImage(x + skip, y + skip, icon);
 	if (progress >= 0. && progress < 1.) {
@@ -804,7 +827,7 @@ void AdminsController::loadMoreRows() {
 }
 
 void AdminsController::rowClicked(not_null<PeerListRow*> row) {
-	delegate()->peerListShowBox(
+	delegate()->peerListUiShow()->showBox(
 		Box(ManageInviteLinksBox, _peer, row->peer()->asUser(), 0, 0));
 }
 
@@ -878,8 +901,6 @@ void ManageInviteLinksBox(
 		not_null<UserData*> admin,
 		int count,
 		int revokedCount) {
-	using namespace Settings;
-
 	const auto show = Main::MakeSessionShow(
 		box->uiShow(),
 		&peer->session());
@@ -904,14 +925,14 @@ void ManageInviteLinksBox(
 			std::move(status));
 	}
 
-	AddSubsectionTitle(container, tr::lng_create_permanent_link_title());
+	Ui::AddSubsectionTitle(container, tr::lng_create_permanent_link_title());
 	AddPermanentLinkBlock(
 		show,
 		container,
 		peer,
 		admin,
 		permanentFromList->events());
-	AddDivider(container);
+	Ui::AddDivider(container);
 
 	auto otherHeader = (Ui::SlideWrap<>*)nullptr;
 	if (admin->isSelf()) {
@@ -926,7 +947,7 @@ void ManageInviteLinksBox(
 			object_ptr<Ui::FlatLabel>(
 				container,
 				tr::lng_group_invite_other_list(),
-				st::settingsSubsectionTitle),
+				st::defaultSubsectionTitle),
 			st::inviteLinkRevokedTitlePadding));
 	}
 
@@ -952,7 +973,7 @@ void ManageInviteLinksBox(
 				container,
 				tr::lng_group_invite_add_about(),
 				st::boxDividerLabel),
-			st::settingsDividerLabelPadding)),
+			st::defaultBoxDividerLabelPadding)),
 		style::margins(0, st::inviteLinkCreateSkip, 0, 0));
 
 	const auto adminsDivider = container->add(object_ptr<Ui::SlideWrap<>>(
@@ -963,7 +984,7 @@ void ManageInviteLinksBox(
 		object_ptr<Ui::FlatLabel>(
 			container,
 			tr::lng_group_invite_other_title(),
-			st::settingsSubsectionTitle),
+			st::defaultSubsectionTitle),
 		st::inviteLinkRevokedTitlePadding));
 	const auto admins = AddAdminsList(show, container, peer, admin);
 
@@ -975,7 +996,7 @@ void ManageInviteLinksBox(
 		object_ptr<Ui::FlatLabel>(
 			container,
 			tr::lng_group_invite_revoked_title(),
-			st::settingsSubsectionTitle),
+			st::defaultSubsectionTitle),
 		st::inviteLinkRevokedTitlePadding));
 	const auto revoked = AddLinksList(
 		show,
@@ -1019,4 +1040,43 @@ void ManageInviteLinksBox(
 	}, revokedHeader->lifetime());
 
 	box->addButton(tr::lng_about_done(), [=] { box->closeBox(); });
+}
+
+object_ptr<Ui::SettingsButton> MakeCreateLinkButton(
+		not_null<QWidget*> parent,
+		rpl::producer<QString> text) {
+	auto result = object_ptr<Ui::SettingsButton>(
+		parent,
+		std::move(text),
+		st::inviteLinkCreate);
+	const auto raw = result.data();
+
+	const auto icon = Ui::CreateChild<Ui::RpWidget>(raw);
+	icon->setAttribute(Qt::WA_TransparentForMouseEvents);
+
+	const auto size = st::inviteLinkCreateIconSize;
+	icon->resize(size, size);
+
+	raw->heightValue(
+	) | rpl::start_with_next([=](int height) {
+		const auto &st = st::inviteLinkList.item;
+		icon->move(
+			st.photoPosition.x() + (st.photoSize - size) / 2,
+			(height - size) / 2);
+	}, icon->lifetime());
+
+	icon->paintRequest(
+	) | rpl::start_with_next([=] {
+		auto p = QPainter(icon);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::windowBgActive);
+		const auto rect = icon->rect();
+		{
+			auto hq = PainterHighQualityEnabler(p);
+			p.drawEllipse(rect);
+		}
+		st::inviteLinkCreateIcon.paintInCenter(p, rect);
+	}, icon->lifetime());
+
+	return result;
 }

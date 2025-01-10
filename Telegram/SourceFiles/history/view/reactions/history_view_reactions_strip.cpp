@@ -51,7 +51,9 @@ Strip::Strip(
 	Fn<void()> update,
 	IconFactory iconFactory)
 : _st(st)
-, _iconFactory(std::move(iconFactory))
+, _iconFactory(iconFactory
+	? std::move(iconFactory)
+	: DefaultCachingIconFactory)
 , _inner(inner)
 , _finalSize(size)
 , _update(std::move(update)) {
@@ -169,9 +171,7 @@ void Strip::paintOne(
 		QPoint position,
 		QRectF target,
 		bool allowAppearStart) {
-	if (icon.added == AddedButton::Premium) {
-		paintPremiumIcon(p, position, target);
-	} else if (icon.added == AddedButton::Expand) {
+	if (icon.added == AddedButton::Expand) {
 		paintExpandIcon(p, position, target);
 	} else {
 		const auto paintFrame = [&](not_null<Ui::AnimatedIcon*> animation) {
@@ -246,30 +246,6 @@ int Strip::fillChosenIconGetIndex(ChosenReaction &chosen) const {
 		chosen.icon = select->frame(_st.textFg->c);
 	}
 	return (i - begin(_icons));
-}
-
-void Strip::paintPremiumIcon(
-		QPainter &p,
-		QPoint position,
-		QRectF target) const {
-	const auto to = QRect(
-		_inner.x() + (_inner.width() - _finalSize) / 2,
-		_inner.y() + (_inner.height() - _finalSize) / 2,
-		_finalSize,
-		_finalSize
-	).translated(position);
-	const auto scale = target.width() / to.width();
-	if (scale != 1.) {
-		p.save();
-		p.translate(target.center());
-		p.scale(scale, scale);
-		p.translate(-target.center());
-	}
-	auto hq = PainterHighQualityEnabler(p);
-	_st.icons.stripPremiumLocked.paintInCenter(p, to);
-	if (scale != 1.) {
-		p.restore();
-	}
 }
 
 void Strip::paintExpandIcon(
@@ -582,6 +558,13 @@ std::shared_ptr<Ui::AnimatedIcon> DefaultIconFactory(
 		not_null<Data::DocumentMedia*> media,
 		int size) {
 	return CreateIcon(media, size);
+}
+
+std::shared_ptr<Ui::AnimatedIcon> DefaultCachingIconFactory(
+		not_null<Data::DocumentMedia*> media,
+		int size) {
+	auto &factory = media->owner()->session().cachedReactionIconFactory();
+	return factory.createMethod()(media, size);
 }
 
 } // namespace HistoryView::Reactions

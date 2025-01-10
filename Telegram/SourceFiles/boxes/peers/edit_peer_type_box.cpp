@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "mtproto/sender.h"
 #include "ui/rp_widget.h"
+#include "ui/vertical_list.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
@@ -39,12 +40,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/widgets/fields/special_fields.h"
+#include "ui/ui_utility.h"
 #include "window/window_session_controller.h"
 #include "settings/settings_common.h"
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
 #include "styles/style_info.h"
-#include "styles/style_settings.h"
 
 namespace {
 
@@ -76,7 +77,7 @@ public:
 	}
 
 	[[nodiscard]] Privacy getPrivacy() const {
-		return _controls.privacy->value();
+		return _controls.privacy->current();
 	}
 
 	[[nodiscard]] bool noForwards() const {
@@ -218,9 +219,9 @@ void Controller::createContent() {
 					object_ptr<Ui::VerticalLayout>(_wrap.get())));
 			const auto wrap = _controls.whoSendWrap->entity();
 
-			AddSkip(wrap);
+			Ui::AddSkip(wrap);
 			if (_dataSavedValue->hasLinkedChat) {
-				AddSubsectionTitle(wrap, tr::lng_manage_peer_send_title());
+				Ui::AddSubsectionTitle(wrap, tr::lng_manage_peer_send_title());
 
 				_controls.joinToWrite = wrap->add(EditPeerInfoBox::CreateButton(
 					wrap,
@@ -238,7 +239,7 @@ void Controller::createContent() {
 				}, wrap->lifetime());
 			} else {
 				_controls.whoSendWrap->toggle(
-					(_controls.privacy->value() == Privacy::HasUsername),
+					(_controls.privacy->current() == Privacy::HasUsername),
 					anim::type::instant);
 			}
 			auto joinToWrite = _controls.joinToWrite
@@ -264,16 +265,16 @@ void Controller::createContent() {
 				_dataSavedValue->requestToJoin = toggled;
 			}, wrap->lifetime());
 
-			AddSkip(wrap);
-			AddDividerText(
+			Ui::AddSkip(wrap);
+			Ui::AddDividerText(
 				wrap,
 				rpl::conditional(
 					std::move(joinToWrite),
 					tr::lng_manage_peer_send_approve_members_about(),
 					tr::lng_manage_peer_send_only_members_about()));
 		}
-		AddSkip(_wrap.get());
-		AddSubsectionTitle(
+		Ui::AddSkip(_wrap.get());
+		Ui::AddSubsectionTitle(
 			_wrap.get(),
 			tr::lng_manage_peer_no_forwards_title());
 		_controls.noForwards = _wrap->add(EditPeerInfoBox::CreateButton(
@@ -289,8 +290,8 @@ void Controller::createContent() {
 		) | rpl::start_with_next([=](bool toggled) {
 			_dataSavedValue->noForwards = toggled;
 		}, _wrap->lifetime());
-		AddSkip(_wrap.get());
-		AddDividerText(
+		Ui::AddSkip(_wrap.get());
+		Ui::AddDividerText(
 			_wrap.get(),
 			(_isGroup
 				? tr::lng_manage_peer_no_forwards_about
@@ -299,7 +300,7 @@ void Controller::createContent() {
 	if (_linkOnly) {
 		_controls.inviteLinkWrap->show(anim::type::instant);
 	} else {
-		if (_controls.privacy->value() == Privacy::NoUsername) {
+		if (_controls.privacy->current() == Privacy::NoUsername) {
 			checkUsernameAvailability();
 		}
 		const auto forShowing = _dataSavedValue
@@ -419,13 +420,13 @@ object_ptr<Ui::RpWidget> Controller::createUsernameEdit() {
 	const auto container = result->entity();
 
 	using namespace Settings;
-	AddSkip(container);
+	Ui::AddSkip(container);
 	container->add(
 		object_ptr<Ui::FlatLabel>(
 			container,
 			tr::lng_create_group_link(),
-			st::settingsSubsectionTitle),
-		st::settingsSubsectionTitlePadding);
+			st::defaultSubsectionTitle),
+		st::defaultSubsectionTitlePadding);
 
 	const auto placeholder = container->add(
 		object_ptr<Ui::RpWidget>(container),
@@ -453,7 +454,7 @@ object_ptr<Ui::RpWidget> Controller::createUsernameEdit() {
 
 	AddUsernameCheckLabel(container, _usernameCheckInfo.events());
 
-	AddDividerText(
+	Ui::AddDividerText(
 		container,
 		tr::lng_create_channel_link_about());
 
@@ -474,7 +475,7 @@ object_ptr<Ui::RpWidget> Controller::createUsernameEdit() {
 		&Ui::UsernameInput::changed,
 		[this] { usernameChanged(); });
 
-	const auto shown = (_controls.privacy->value() == Privacy::HasUsername);
+	const auto shown = (_controls.privacy->current() == Privacy::HasUsername);
 	result->toggle(shown, anim::type::instant);
 
 	return result;
@@ -539,7 +540,7 @@ void Controller::checkUsernameAvailability() {
 	if (!_controls.usernameInput) {
 		return;
 	}
-	const auto initial = (_controls.privacy->value() != Privacy::HasUsername);
+	const auto initial = (_controls.privacy->current() != Privacy::HasUsername);
 	const auto checking = initial
 		? u".bad."_q
 		: getUsernameInput();
@@ -573,11 +574,11 @@ void Controller::checkUsernameAvailability() {
 			_controls.privacy->setValue(Privacy::NoUsername);
 		} else if (type == u"CHANNELS_ADMIN_PUBLIC_TOO_MUCH"_q) {
 			_usernameState = UsernameState::TooMany;
-			if (_controls.privacy->value() == Privacy::HasUsername) {
+			if (_controls.privacy->current() == Privacy::HasUsername) {
 				askUsernameRevoke();
 			}
 		} else if (initial) {
-			if (_controls.privacy->value() == Privacy::HasUsername) {
+			if (_controls.privacy->current() == Privacy::HasUsername) {
 				showUsernameEmpty();
 				setFocusUsername();
 			}
@@ -585,9 +586,8 @@ void Controller::checkUsernameAvailability() {
 			showUsernameError(tr::lng_create_channel_link_invalid());
 		} else if (type == u"USERNAME_PURCHASE_AVAILABLE"_q) {
 			_goodUsername = false;
-			_usernameCheckInfo.fire({
-				.type = UsernameCheckInfo::Type::PurchaseAvailable,
-			});
+			_usernameCheckInfo.fire(
+				UsernameCheckInfo::PurchaseAvailable(checking, _peer));
 		} else if (type == u"USERNAME_OCCUPIED"_q && checking != username) {
 			showUsernameError(tr::lng_create_channel_link_occupied());
 		}
@@ -675,7 +675,7 @@ object_ptr<Ui::RpWidget> Controller::createInviteLinkBlock() {
 
 	using namespace Settings;
 	if (_dataSavedValue) {
-		AddSkip(container);
+		Ui::AddSkip(container);
 
 		AddSubsectionTitle(container, tr::lng_create_permanent_link_title());
 	}
@@ -686,9 +686,9 @@ object_ptr<Ui::RpWidget> Controller::createInviteLinkBlock() {
 		_peer->session().user(),
 		nullptr);
 
-	AddSkip(container);
+	Ui::AddSkip(container);
 
-	AddDividerText(
+	Ui::AddDividerText(
 		container,
 		((_peer->isMegagroup() || _peer->asChat())
 			? tr::lng_group_invite_about_permanent_group()

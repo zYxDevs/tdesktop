@@ -309,7 +309,7 @@ System::Timing System::countTiming(
 
 void System::registerThread(not_null<Data::Thread*> thread) {
 	if (const auto topic = thread->asTopic()) {
-		const auto [i, ok] = _watchedTopics.emplace(topic, rpl::lifetime());
+		const auto &[i, ok] = _watchedTopics.emplace(topic, rpl::lifetime());
 		if (ok) {
 			topic->destroyed() | rpl::start_with_next([=] {
 				clearFromTopic(topic);
@@ -900,7 +900,6 @@ TextWithEntities Manager::ComposeReactionEmoji(
 		return TextWithEntities{ *emoji };
 	}
 	const auto id = v::get<DocumentId>(reaction.data);
-	auto entities = EntitiesInText();
 	const auto document = session->data().document(id);
 	const auto sticker = document->sticker();
 	const auto text = sticker ? sticker->alt : PlaceholderReactionText();
@@ -995,7 +994,7 @@ TextWithEntities Manager::ComposeReactionNotification(
 				lt_reaction,
 				reactionWithEntities,
 				lt_title,
-				Ui::Text::WithEntities(poll->question),
+				poll->question,
 				Ui::Text::WithEntities);
 	} else if (media->game()) {
 		return simple(tr::lng_reaction_game);
@@ -1060,22 +1059,23 @@ void Manager::notificationActivated(
 				const auto replyToId = (id.msgId > 0
 					&& !history->peer->isUser()
 					&& id.msgId != topicRootId)
-					? id.msgId
-					: 0;
+					? FullMsgId(history->peer->id, id.msgId)
+					: FullMsgId();
 				auto draft = std::make_unique<Data::Draft>(
 					reply,
-					replyToId,
-					topicRootId,
+					FullReplyTo{
+						.messageId = replyToId,
+						.topicRootId = topicRootId,
+					},
 					MessageCursor{
 						int(reply.text.size()),
 						int(reply.text.size()),
-						QFIXED_MAX,
+						Ui::kQFixedMax,
 					},
-					Data::PreviewState::Allowed);
+					Data::WebPageDraft());
 				history->setLocalDraft(std::move(draft));
 			}
 			window->widget()->showFromTray();
-			window->widget()->reActivateWindow();
 			if (Core::App().passcodeLocked()) {
 				window->widget()->setInnerFocus();
 				system()->clearAll();
@@ -1096,7 +1096,7 @@ void Manager::openNotificationMessage(
 		&& item->isRegular()
 		&& (item->out() || (item->mentionsMe() && !history->peer->isUser()));
 	const auto topic = item ? item->topic() : nullptr;
-	const auto separate = Core::App().separateWindowForPeer(history->peer);
+	const auto separate = Core::App().separateWindowFor(history->peer);
 	const auto window = separate
 		? separate->sessionController()
 		: history->session().tryResolveWindow();
@@ -1150,7 +1150,7 @@ void Manager::notificationReplied(
 		? topicRootId
 		: MsgId(0);
 	message.action.replyTo = {
-		.msgId = replyToId,
+		.messageId = { replyToId ? history->peer->id : 0, replyToId },
 		.topicRootId = topic ? topic->rootId() : 0,
 	};
 	message.action.clearDraft = false;

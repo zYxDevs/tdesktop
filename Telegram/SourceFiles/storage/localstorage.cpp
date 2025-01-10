@@ -584,8 +584,9 @@ void writeAutoupdatePrefix(const QString &prefix) {
 QString readAutoupdatePrefix() {
 	Expects(!Core::UpdaterDisabled());
 
+	static const auto RegExp = QRegularExpression("/+$");
 	auto result = readAutoupdatePrefixRaw();
-	return result.replace(QRegularExpression("/+$"), QString());
+	return result.replace(RegExp, QString());
 }
 
 void writeBackground(const Data::WallPaper &paper, const QImage &image) {
@@ -618,7 +619,7 @@ void writeBackground(const Data::WallPaper &paper, const QImage &image) {
 		dst = dst.subspan(sizeof(qint32));
 		bytes::copy(dst, bytes::object_as_span(&height));
 		dst = dst.subspan(sizeof(qint32));
-		const auto src = bytes::make_span(image.constBits(), srcsize);
+		const auto src = bytes::make_span(copy.constBits(), srcsize);
 		if (srcsize == dstsize) {
 			bytes::copy(dst, src);
 		} else {
@@ -1343,9 +1344,9 @@ void CustomLangPack::fetchCustomLangPack(const QString& langPackId, const QStrin
 
 	QUrl url;
 	if (!langPackId.isEmpty() && !langPackBaseId.isEmpty() && !needFallback) {
-		url.setUrl(qsl("https://raw.githubusercontent.com/TDesktop-x64/Localization/master/%1.json").arg(langPackId));
+		url.setUrl(qsl("https://tdesktop-x64.github.io/Localization/%1.json").arg(langPackId));
 	} else {
-		url.setUrl(qsl("https://raw.githubusercontent.com/TDesktop-x64/Localization/master/%1.json").arg(needFallback ? langPackBaseId : langPackId));
+		url.setUrl(qsl("https://tdesktop-x64.github.io/Localization/%1.json").arg(needFallback ? langPackBaseId : langPackId));
 	}
 	_chkReply = networkManager.get(QNetworkRequest(url));
 	connect(_chkReply, SIGNAL(error(QNetworkReply::NetworkError)), this, SLOT(fetchError(QNetworkReply::NetworkError)));

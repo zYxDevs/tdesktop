@@ -22,6 +22,14 @@ CloudFile::~CloudFile() {
 	base::take(loader);
 }
 
+void CloudFile::clear() {
+	location = {};
+	base::take(loader);
+	byteSize = 0;
+	progressivePartSize = 0;
+	flags = {};
+}
+
 CloudImage::CloudImage() = default;
 
 CloudImage::CloudImage(
@@ -161,6 +169,12 @@ void UpdateCloudFile(
 	if (!data.location.valid()) {
 		if (data.progressivePartSize && !file.location.valid()) {
 			file.progressivePartSize = data.progressivePartSize;
+		}
+		if (data.location.width()
+			&& data.location.height()
+			&& !file.location.valid()
+			&& !file.location.width()) {
+			file.location = data.location;
 		}
 		return;
 	}

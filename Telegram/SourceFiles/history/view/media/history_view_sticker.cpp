@@ -42,6 +42,7 @@ constexpr auto kMaxSizeFixed = 512;
 constexpr auto kMaxEmojiSizeFixed = 256;
 constexpr auto kPremiumMultiplier = (1 + 0.245 * 2);
 constexpr auto kEmojiMultiplier = 3;
+constexpr auto kMessageEffectMultiplier = 2;
 
 [[nodiscard]] QImage CacheDiceImage(
 		const QString &emoji,
@@ -131,20 +132,26 @@ bool Sticker::hasPremiumEffect() const {
 }
 
 bool Sticker::customEmojiPart() const {
-	return (_cachingTag != ChatHelpers::StickerLottieSize::MessageHistory);
+	return _customEmojiPart;
 }
 
-bool Sticker::isEmojiSticker() const {
-	return (_parent->data()->media() == nullptr);
+bool Sticker::emojiSticker() const {
+	return _emojiSticker;
 }
 
-void Sticker::initSize() {
-	if (isEmojiSticker() || _diceIndex >= 0) {
-		if (_giftBoxSticker) {
-			_size = st::msgServiceGiftBoxStickerSize;
-		} else {
-			_size = EmojiSize();
-		}
+bool Sticker::webpagePart() const {
+	return _webpagePart;
+}
+
+void Sticker::initSize(int customSize) {
+	if (customSize > 0) {
+		const auto original = Size(_data);
+		const auto proposed = QSize{ customSize, customSize };
+		_size = original.isEmpty()
+			? proposed
+			: DownscaledSize(original, proposed);
+	} else if (emojiSticker() || _diceIndex >= 0) {
+		_size = EmojiSize();
 		if (_diceIndex > 0) {
 			[[maybe_unused]] bool result = readyToDrawAnimationFrame();
 		}
@@ -155,7 +162,7 @@ void Sticker::initSize() {
 	
 	auto peerId = _parent->data()->from() ? _parent->data()->from()->id : PeerId(0);
 	auto user = _parent->history()->session().data().peerLoaded(_parent->data()->from() ? _parent->data()->from()->id : PeerId(0));
-	if (GetEnhancedBool("blocked_user_spoiler_mode") && blockExist(int64(peerId.value)) || GetEnhancedBool("blocked_user_spoiler_mode") && user && user->isBlocked()) {
+	if ((GetEnhancedBool("blocked_user_spoiler_mode") && blockExist(peerId.value)) || (GetEnhancedBool("blocked_user_spoiler_mode") && user && user->isBlocked())) {
 		_size = DownscaledSize(_data->dimensions, {128,kMaxSizeFixed});
 	}
 }
@@ -209,6 +216,10 @@ QSize Sticker::EmojiEffectSize() {
 	return EmojiSize() * kEmojiMultiplier;
 }
 
+QSize Sticker::MessageEffectSize() {
+	return EmojiSize() * kMessageEffectMultiplier;
+}
+
 QSize Sticker::EmojiSize() {
 	const auto side = std::min(st::maxAnimatedEmojiSize, kMaxEmojiSizeFixed);
 	return { side, side };
@@ -245,8 +256,9 @@ DocumentData *Sticker::document() {
 }
 
 void Sticker::stickerClearLoopPlayed() {
-	_oncePlayed = false;
-	_premiumEffectPlayed = false;
+	if (!_playingOnce) {
+		_oncePlayed = false;
+	}
 	_premiumEffectSkipped = false;
 }
 
@@ -259,7 +271,7 @@ void Sticker::paintAnimationFrame(
 		: (context.selected() && !_nextLastDiceFrame)
 		? context.st->msgStickerOverlay()->c
 		: QColor(0, 0, 0, 0);
-	const auto powerSavingFlag = (isEmojiSticker() || _diceIndex >= 0)
+	const auto powerSavingFlag = (emojiSticker() || _diceIndex >= 0)
 		? PowerSaving::kEmojiChat
 		: PowerSaving::kStickersChat;
 	const auto paused = context.paused || On(powerSavingFlag);
@@ -283,7 +295,7 @@ void Sticker::paintAnimationFrame(
 			base::duplicate(image),
 			context.st->msgStickerOverlay()->c)
 		: image;
-	const auto size = prepared.size() / cIntRetinaFactor();
+	const auto size = prepared.size() / style::DevicePixelRatio();
 	p.drawImage(
 		QRect(
 			QPoint(
@@ -301,11 +313,11 @@ void Sticker::paintAnimationFrame(
 	_nextLastDiceFrame = !paused
 		&& (_diceIndex > 0)
 		&& (_frameIndex + 2 == count);
-	const auto playOnce = (_diceIndex > 0)
+	const auto playOnce = (_playingOnce || _diceIndex > 0)
 		? true
 		: (_diceIndex == 0)
 		? false
-		: ((!customEmojiPart() && isEmojiSticker())
+		: ((!customEmojiPart() && emojiSticker())
 			|| !Core::App().settings().loopAnimatedStickers());
 	const auto lastDiceFrame = (_diceIndex > 0) && atTheEnd();
 	const auto switchToNext = !playOnce
@@ -329,10 +341,10 @@ bool Sticker::paintPixmap(
 	if (pixmap.isNull()) {
 		return false;
 	}
-	const auto position = QPoint(
-		r.x() + (r.width() - _size.width()) / 2,
-		r.y() + (r.height() - _size.height()) / 2);
 	const auto size = pixmap.size() / pixmap.devicePixelRatio();
+	const auto position = QPoint(
+		r.x() + (r.width() - size.width()) / 2,
+		r.y() + (r.height() - size.height()) / 2);
 	const auto mirror = mirrorHorizontal();
 	if (mirror) {
 		p.save();
@@ -360,6 +372,8 @@ void Sticker::paintPath(
 		helper.emplace(Ui::CustomEmoji::PreviewColorFromTextColor(
 			ComputeEmojiTextColor(context)));
 		pathGradient->overrideColors(helper->color(), helper->color());
+	} else if (webpagePart()) {
+		pathGradient->overrideColors(st::shadowFg, st::shadowFg);
 	} else if (context.selected()) {
 		pathGradient->overrideColors(
 			context.st->msgServiceBgSelected(),
@@ -381,6 +395,14 @@ void Sticker::paintPath(
 
 QPixmap Sticker::paintedPixmap(const PaintContext &context) const {
 	auto helper = std::optional<style::owned_color>();
+	const auto sticker = _data->sticker();
+	const auto ratio = style::DevicePixelRatio();
+	const auto adjust = [&](int side) {
+		return (((side * ratio) / 8) * 8) / ratio;
+	};
+	const auto useSize = (sticker && sticker->type == StickerType::Tgs)
+		? QSize(adjust(_size.width()), adjust(_size.height()))
+		: _size;
 	const auto colored = (customEmojiPart() && _data->emojiUsesTextColor())
 		? &helper.emplace(ComputeEmojiTextColor(context)).color()
 		: context.selected()
@@ -388,19 +410,19 @@ QPixmap Sticker::paintedPixmap(const PaintContext &context) const {
 		: nullptr;
 	const auto good = _dataMedia->goodThumbnail();
 	if (const auto image = _dataMedia->getStickerLarge()) {
-		return image->pix(_size, { .colored = colored });
+		return image->pix(useSize, { .colored = colored });
 	//
 	// Inline thumbnails can't have alpha channel.
 	//
 	//} else if (const auto blurred = _data->thumbnailInline()) {
 	//	return blurred->pix(
-	//		_size,
+	//		useSize,
 	//		{ .colored = colored, .options = Images::Option::Blur });
 	} else if (good) {
-		return good->pix(_size, { .colored = colored });
+		return good->pix(useSize, { .colored = colored });
 	} else if (const auto thumbnail = _dataMedia->thumbnail()) {
 		return thumbnail->pix(
-			_size,
+			useSize,
 			{ .colored = colored, .options = Images::Option::Blur });
 	}
 	return QPixmap();
@@ -410,8 +432,7 @@ bool Sticker::mirrorHorizontal() const {
 	if (!hasPremiumEffect()) {
 		return false;
 	}
-	const auto rightAligned = _parent->hasOutLayout()
-		&& !_parent->delegate()->elementIsChatWide();
+	const auto rightAligned = _parent->hasRightLayout();
 	return !rightAligned;
 }
 
@@ -429,7 +450,7 @@ void Sticker::refreshLink() {
 		return;
 	}
 	const auto sticker = _data->sticker();
-	if (isEmojiSticker()) {
+	if (emojiSticker()) {
 		const auto weak = base::make_weak(this);
 		_link = std::make_shared<LambdaClickHandler>([weak] {
 			if (const auto that = weak.get()) {
@@ -507,15 +528,24 @@ void Sticker::setDiceIndex(const QString &emoji, int index) {
 	_diceIndex = index;
 }
 
-void Sticker::setCustomEmojiPart(
-		int size,
-		ChatHelpers::StickerLottieSize tag) {
-	_size = { size, size };
+void Sticker::setPlayingOnce(bool once) {
+	_playingOnce = once;
+}
+
+void Sticker::setCustomCachingTag(ChatHelpers::StickerLottieSize tag) {
 	_cachingTag = tag;
 }
 
-void Sticker::setGiftBoxSticker(bool giftBoxSticker) {
-	_giftBoxSticker = giftBoxSticker;
+void Sticker::setCustomEmojiPart() {
+	_customEmojiPart = true;
+}
+
+void Sticker::setEmojiSticker() {
+	_emojiSticker = true;
+}
+
+void Sticker::setWebpagePart() {
+	_webpagePart = true;
 }
 
 void Sticker::setupPlayer() {

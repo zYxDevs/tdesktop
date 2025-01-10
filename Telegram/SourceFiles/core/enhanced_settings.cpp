@@ -194,14 +194,6 @@ namespace EnhancedSettings {
 			}
 		});
 
-		ReadBoolOption(settings, "net_dl_speed_boost", [&](auto v) {
-			if (v) {
-				SetNetworkDLBoost(true);
-			} else {
-				SetNetworkDLBoost(false);
-			}
-		});
-
 		ReadOption(settings, "bitrate", [&](auto v) {
 			if (v.isDouble()) {
 				int value = v.toInt();
@@ -297,7 +289,6 @@ namespace EnhancedSettings {
 
 		auto settings = QJsonObject();
 		settings.insert(qsl("net_speed_boost"), 0);
-		settings.insert(qsl("net_dl_speed_boost"), false);
 		settings.insert(qsl("show_messages_id"), false);
 		settings.insert(qsl("show_repeater_option"), false);
 		settings.insert(qsl("show_emoji_button_as_text"), false);
@@ -318,10 +309,14 @@ namespace EnhancedSettings {
 		settings.insert(qsl("disable_link_warning"), false);
 		settings.insert(qsl("blocked_user_spoiler_mode"), false);
 		settings.insert(qsl("disable_premium_animation"), false);
+		settings.insert(qsl("disable_global_search"), false);
+		settings.insert(qsl("show_group_sender_avatar"), false);
 		settings.insert(qsl("show_seconds"), false);
 		settings.insert(qsl("hide_counter"), false);
 		settings.insert(qsl("translate_to_tc"), false);
 		settings.insert(qsl("hide_stories"), false);
+		settings.insert(qsl("recent_display_limit"), 20);
+		settings.insert(qsl("screenshot_mode"), false);
 
 		auto document = QJsonDocument();
 		document.setObject(settings);
@@ -347,7 +342,6 @@ namespace EnhancedSettings {
 
 		auto settings = QJsonObject();
 		settings.insert(qsl("net_speed_boost"), GetEnhancedInt("net_speed_boost"));
-		settings.insert(qsl("net_dl_speed_boost"), GetEnhancedBool("net_dl_speed_boost"));
 		settings.insert(qsl("show_messages_id"), GetEnhancedBool("show_messages_id"));
 		settings.insert(qsl("show_repeater_option"), GetEnhancedBool("show_repeater_option"));
 		settings.insert(qsl("show_emoji_button_as_text"), GetEnhancedBool("show_emoji_button_as_text"));
@@ -368,10 +362,14 @@ namespace EnhancedSettings {
 		settings.insert(qsl("disable_link_warning"), GetEnhancedBool("disable_link_warning"));
 		settings.insert(qsl("blocked_user_spoiler_mode"), GetEnhancedBool("blocked_user_spoiler_mode"));
 		settings.insert(qsl("disable_premium_animation"), GetEnhancedBool("disable_premium_animation"));
+		settings.insert(qsl("disable_global_search"), GetEnhancedBool("disable_global_search"));
+		settings.insert(qsl("show_group_sender_avatar"), GetEnhancedBool("show_group_sender_avatar"));
 		settings.insert(qsl("show_seconds"), GetEnhancedBool("show_seconds"));
 		settings.insert(qsl("hide_counter"), GetEnhancedBool("hide_counter"));
 		settings.insert(qsl("translate_to_tc"), GetEnhancedBool("translate_to_tc"));
 		settings.insert(qsl("hide_stories"), GetEnhancedBool("hide_stories"));
+		settings.insert(qsl("recent_display_limit"), GetEnhancedInt("recent_display_limit"));
+		settings.insert(qsl("screenshot_mode"), GetEnhancedBool("screenshot_mode"));
 
 		auto document = QJsonDocument();
 		document.setObject(settings);

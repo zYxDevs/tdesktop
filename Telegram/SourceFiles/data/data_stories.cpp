@@ -7,7 +7,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_stories.h"
 
-#include "api/api_report.h"
 #include "base/unixtime.h"
 #include "apiwrap.h"
 #include "core/application.h"
@@ -21,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
+#include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "ui/layers/show.h"
 #include "ui/text/text_utilities.h"
@@ -62,7 +62,9 @@ using UpdateFlag = StoryUpdate::Flag;
 	}, [&](const MTPDmessageMediaDocument &data)
 		-> std::optional<StoryMedia> {
 		if (const auto document = data.vdocument()) {
-			const auto result = owner->processDocument(*document);
+			const auto result = owner->processDocument(
+				*document,
+				data.valt_documents());
 			if (!result->isNull()
 				&& (result->isGifv() || result->isVideoFile())) {
 				result->setStoryMedia(true);
@@ -76,6 +78,21 @@ using UpdateFlag = StoryUpdate::Flag;
 }
 
 } // namespace
+
+std::vector<StoryId> RespectingPinned(const StoriesIds &ids) {
+	if (ids.pinnedToTop.empty()) {
+		return ids.list | ranges::to_vector;
+	}
+	auto result = std::vector<StoryId>();
+	result.reserve(ids.list.size());
+	result.insert(end(result), begin(ids.pinnedToTop), end(ids.pinnedToTop));
+	for (const auto &id : ids.list) {
+		if (!ranges::contains(ids.pinnedToTop, id)) {
+			result.push_back(id);
+		}
+	}
+	return result;
+}
 
 StoriesSourceInfo StoriesSource::info() const {
 	return {
@@ -215,6 +232,9 @@ void Stories::apply(const MTPStoriesStealthMode &stealthMode) {
 }
 
 void Stories::apply(not_null<PeerData*> peer, const MTPPeerStories *data) {
+	if (GetEnhancedBool("hide_stories")) {
+		return;
+	}
 	if (!data) {
 		applyDeletedFromSources(peer->id, StorySourcesList::NotHidden);
 		applyDeletedFromSources(peer->id, StorySourcesList::Hidden);
@@ -226,7 +246,10 @@ void Stories::apply(not_null<PeerData*> peer, const MTPPeerStories *data) {
 	}
 }
 
-Story *Stories::applyFromWebpage(PeerId peerId, const MTPstoryItem &story) {
+Story *Stories::applySingle(PeerId peerId, const MTPstoryItem &story) {
+	if (GetEnhancedBool("hide_stories")) {
+		return nullptr;
+	}
 	const auto idDates = parseAndApply(
 		_owner->peer(peerId),
 		story,
@@ -240,7 +263,7 @@ Story *Stories::applyFromWebpage(PeerId peerId, const MTPstoryItem &story) {
 void Stories::requestPeerStories(
 		not_null<PeerData*> peer,
 		Fn<void()> done) {
-	const auto [i, ok] = _requestingPeerStories.emplace(peer);
+	const auto &[i, ok] = _requestingPeerStories.emplace(peer);
 	if (done) {
 		i->second.push_back(std::move(done));
 	}
@@ -346,7 +369,7 @@ void Stories::clearArchive(not_null<PeerData*> peer) {
 	_archive.erase(i);
 	for (const auto &id : archive.ids.list) {
 		if (const auto story = lookup({ peerId, id })) {
-			if ((*story)->expired() && !(*story)->pinned()) {
+			if ((*story)->expired() && !(*story)->inProfile()) {
 				applyDeleted(peer, id);
 			}
 		}
@@ -564,8 +587,8 @@ void Stories::unregisterDependentMessage(
 void Stories::savedStateChanged(not_null<Story*> story) {
 	const auto id = story->id();
 	const auto peer = story->peer()->id;
-	const auto pinned = story->pinned();
-	if (pinned) {
+	const auto inProfile = story->inProfile();
+	if (inProfile) {
 		auto &saved = _saved[peer];
 		const auto added = saved.ids.list.emplace(id).second;
 		if (added) {
@@ -800,7 +823,7 @@ void Stories::applyDeleted(not_null<PeerData*> peer, StoryId id) {
 					}
 				}
 			}
-			if (story->pinned()) {
+			if (story->inProfile()) {
 				if (const auto k = _saved.find(peerId); k != end(_saved)) {
 					const auto saved = &k->second;
 					if (saved->ids.list.remove(id)) {
@@ -838,7 +861,7 @@ void Stories::applyDeleted(not_null<PeerData*> peer, StoryId id) {
 void Stories::applyExpired(FullStoryId id) {
 	if (const auto maybeStory = lookup(id)) {
 		const auto story = *maybeStory;
-		if (!hasArchive(story->peer()) && !story->pinned()) {
+		if (!hasArchive(story->peer()) && !story->inProfile()) {
 			applyDeleted(story->peer(), id.story);
 			return;
 		}
@@ -976,7 +999,7 @@ std::shared_ptr<HistoryItem> Stories::resolveItem(not_null<Story*> story) {
 	}
 	const auto history = _owner->history(story->peer());
 	auto result = std::shared_ptr<HistoryItem>(
-		history->makeMessage(story).get(),
+		history->makeMessage(StoryIdToMsgId(story->id()), story).get(),
 		HistoryItem::Destroyer());
 	i->second = result;
 	return result;
@@ -1105,7 +1128,7 @@ void Stories::markAsRead(FullStoryId id, bool viewed) {
 		return;
 	}
 	const auto story = *maybeStory;
-	if (story->expired() && story->pinned()) {
+	if (story->expired() && story->inProfile()) {
 		_incrementViewsPending[id.peer].emplace(id.story);
 		if (!_incrementViewsTimer.isActive()) {
 			_incrementViewsTimer.callOnce(kIncrementViewsDelay);
@@ -1176,8 +1199,11 @@ void Stories::toggleHidden(
 		bool hidden,
 		std::shared_ptr<Ui::Show> show) {
 	const auto peer = _owner->peer(peerId);
+	const auto justRemove = peer->isServiceUser() && hidden;
 	if (peer->hasStoriesHidden() != hidden) {
-		peer->setStoriesHidden(hidden);
+		if (!justRemove) {
+			peer->setStoriesHidden(hidden);
+		}
 		session().api().request(MTPstories_TogglePeerStoriesHidden(
 			peer->input,
 			MTP_bool(hidden)
@@ -1186,7 +1212,7 @@ void Stories::toggleHidden(
 
 	const auto name = peer->shortName();
 	const auto guard = gsl::finally([&] {
-		if (show) {
+		if (show && !justRemove) {
 			const auto phrase = hidden
 				? tr::lng_stories_hidden_to_contacts
 				: tr::lng_stories_shown_in_chats;
@@ -1197,6 +1223,11 @@ void Stories::toggleHidden(
 				Ui::Text::RichLangValue));
 		}
 	});
+
+	if (justRemove) {
+		apply(peer, nullptr);
+		return;
+	}
 
 	const auto i = _all.find(peerId);
 	if (i == end(_all)) {
@@ -1288,7 +1319,6 @@ void Stories::sendIncrementViewsRequests() {
 	if (_incrementViewsPending.empty()) {
 		return;
 	}
-	auto ids = QVector<MTPint>();
 	struct Prepared {
 		PeerId peer = 0;
 		QVector<MTPint> ids;
@@ -1351,6 +1381,96 @@ void Stories::loadViewsSlice(
 	}
 }
 
+void Stories::loadReactionsSlice(
+		not_null<PeerData*> peer,
+		StoryId id,
+		QString offset,
+		Fn<void(StoryViews)> done) {
+	Expects(peer->isChannel());
+
+	if (_reactionsStoryPeer == peer
+		&& _reactionsStoryId == id
+		&& _reactionsOffset == offset) {
+		if (_reactionsRequestId) {
+			_reactionsDone = std::move(done);
+		}
+		return;
+	}
+	_reactionsStoryPeer = peer;
+	_reactionsStoryId = id;
+	_reactionsOffset = offset;
+	_reactionsDone = std::move(done);
+
+	using Flag = MTPstories_GetStoryReactionsList::Flag;
+	const auto api = &_owner->session().api();
+	_owner->session().api().request(_reactionsRequestId).cancel();
+	_reactionsRequestId = api->request(MTPstories_GetStoryReactionsList(
+		MTP_flags(offset.isEmpty() ? Flag() : Flag::f_offset),
+		_reactionsStoryPeer->input,
+		MTP_int(_reactionsStoryId),
+		MTPReaction(),
+		MTP_string(_reactionsOffset),
+		MTP_int(kViewsPerPage)
+	)).done([=](const MTPstories_StoryReactionsList &result) {
+		_reactionsRequestId = 0;
+
+		const auto &data = result.data();
+		auto slice = StoryViews{
+			.nextOffset = data.vnext_offset().value_or_empty(),
+			.reactions = data.vcount().v,
+			.total = data.vcount().v,
+		};
+		_owner->processUsers(data.vusers());
+		_owner->processChats(data.vchats());
+		slice.list.reserve(data.vreactions().v.size());
+		for (const auto &reaction : data.vreactions().v) {
+			reaction.match([&](const MTPDstoryReaction &data) {
+				slice.list.push_back({
+					.peer = _owner->peer(peerFromMTP(data.vpeer_id())),
+					.reaction = ReactionFromMTP(data.vreaction()),
+					.date = data.vdate().v,
+				});
+			}, [&](const MTPDstoryReactionPublicRepost &data) {
+				const auto story = applySingle(
+					peerFromMTP(data.vpeer_id()),
+					data.vstory());
+				if (story) {
+					slice.list.push_back({
+						.peer = story->peer(),
+						.repostId = story->id(),
+						});
+				}
+			}, [&](const MTPDstoryReactionPublicForward &data) {
+				const auto item = _owner->addNewMessage(
+					data.vmessage(),
+					{},
+					NewMessageType::Existing);
+				if (item) {
+					slice.list.push_back({
+						.peer = item->history()->peer,
+						.forwardId = item->id,
+					});
+				}
+			});
+		}
+		const auto fullId = FullStoryId{
+			.peer = _reactionsStoryPeer->id,
+			.story = _reactionsStoryId,
+		};
+		if (const auto story = lookup(fullId)) {
+			(*story)->applyChannelReactionsSlice(_reactionsOffset, slice);
+		}
+		if (const auto done = base::take(_reactionsDone)) {
+			done(std::move(slice));
+		}
+	}).fail([=] {
+		_reactionsRequestId = 0;
+		if (const auto done = base::take(_reactionsDone)) {
+			done({});
+		}
+	}).send();
+}
+
 void Stories::sendViewsSliceRequest() {
 	Expects(_viewsStoryPeer != nullptr);
 	Expects(_viewsStoryPeer->isSelf());
@@ -1372,17 +1492,43 @@ void Stories::sendViewsSliceRequest() {
 		auto slice = StoryViews{
 			.nextOffset = data.vnext_offset().value_or_empty(),
 			.reactions = data.vreactions_count().v,
+			.forwards = data.vforwards_count().v,
+			.views = data.vviews_count().v,
 			.total = data.vcount().v,
 		};
 		_owner->processUsers(data.vusers());
+		_owner->processChats(data.vchats());
 		slice.list.reserve(data.vviews().v.size());
 		for (const auto &view : data.vviews().v) {
-			slice.list.push_back({
-				.peer = _owner->peer(peerFromUser(view.data().vuser_id())),
-				.reaction = (view.data().vreaction()
-					? ReactionFromMTP(*view.data().vreaction())
-					: Data::ReactionId()),
-				.date = view.data().vdate().v,
+			view.match([&](const MTPDstoryView &data) {
+				slice.list.push_back({
+					.peer = _owner->peer(peerFromUser(data.vuser_id())),
+					.reaction = (data.vreaction()
+						? ReactionFromMTP(*data.vreaction())
+						: Data::ReactionId()),
+					.date = data.vdate().v,
+				});
+			}, [&](const MTPDstoryViewPublicRepost &data) {
+				const auto story = applySingle(
+					peerFromMTP(data.vpeer_id()),
+					data.vstory());
+				if (story) {
+					slice.list.push_back({
+						.peer = story->peer(),
+						.repostId = story->id(),
+					});
+				}
+			}, [&](const MTPDstoryViewPublicForward &data) {
+				const auto item = _owner->addNewMessage(
+					data.vmessage(),
+					{},
+					NewMessageType::Existing);
+				if (item) {
+					slice.list.push_back({
+						.peer = item->history()->peer,
+						.forwardId = item->id,
+					});
+				}
 			});
 		}
 		const auto fullId = FullStoryId{
@@ -1491,6 +1637,9 @@ bool Stories::savedLoaded(PeerId peerId) const {
 }
 
 void Stories::archiveLoadMore(PeerId peerId) {
+	if (GetEnhancedBool("hide_stories")) {
+		return;
+	}
 	const auto peer = _owner->peer(peerId);
 	const auto archive = lookupArchive(peer);
 	if (!archive || archive->requestId || archive->loaded) {
@@ -1557,6 +1706,10 @@ void Stories::savedLoadMore(PeerId peerId) {
 
 		const auto &data = result.data();
 		const auto now = base::unixtime::now();
+		auto pinnedToTopIds = data.vpinned_to_top().value_or_empty();
+		auto pinnedToTop = pinnedToTopIds
+			| ranges::views::transform(&MTPint::v)
+			| ranges::to_vector;
 		saved.total = data.vcount().v;
 		for (const auto &story : data.vstories().v) {
 			const auto id = story.match([&](const auto &id) {
@@ -1574,6 +1727,7 @@ void Stories::savedLoadMore(PeerId peerId) {
 		const auto ids = int(saved.ids.list.size());
 		saved.loaded = data.vstories().v.empty();
 		saved.total = saved.loaded ? ids : std::max(saved.total, ids);
+		setPinnedToTop(peerId, std::move(pinnedToTop));
 		_savedChanged.fire_copy(peerId);
 	}).fail([=] {
 		auto &saved = _saved[peerId];
@@ -1582,6 +1736,33 @@ void Stories::savedLoadMore(PeerId peerId) {
 		saved.total = int(saved.ids.list.size());
 		_savedChanged.fire_copy(peerId);
 	}).send();
+}
+
+void Stories::setPinnedToTop(
+		PeerId peerId,
+		std::vector<StoryId> &&pinnedToTop) {
+	const auto i = _saved.find(peerId);
+	if (i == end(_saved) && pinnedToTop.empty()) {
+		return;
+	}
+	auto &saved = (i == end(_saved)) ? _saved[peerId] : i->second;
+	if (saved.ids.pinnedToTop != pinnedToTop) {
+		for (const auto id : saved.ids.pinnedToTop) {
+			if (!ranges::contains(pinnedToTop, id)) {
+				if (const auto maybeStory = lookup({ peerId, id })) {
+					(*maybeStory)->setPinnedToTop(false);
+				}
+			}
+		}
+		for (const auto id : pinnedToTop) {
+			if (!ranges::contains(saved.ids.pinnedToTop, id)) {
+				if (const auto maybeStory = lookup({ peerId, id })) {
+					(*maybeStory)->setPinnedToTop(true);
+				}
+			}
+		}
+		saved.ids.pinnedToTop = std::move(pinnedToTop);
+	}
 }
 
 void Stories::deleteList(const std::vector<FullStoryId> &ids) {
@@ -1607,9 +1788,9 @@ void Stories::deleteList(const std::vector<FullStoryId> &ids) {
 	}).send();
 }
 
-void Stories::togglePinnedList(
+void Stories::toggleInProfileList(
 		const std::vector<FullStoryId> &ids,
-		bool pinned) {
+		bool inProfile) {
 	if (ids.empty()) {
 		return;
 	}
@@ -1628,7 +1809,7 @@ void Stories::togglePinnedList(
 	api->request(MTPstories_TogglePinned(
 		peer->input,
 		MTP_vector<MTPint>(list),
-		MTP_bool(pinned)
+		MTP_bool(inProfile)
 	)).done([=](const MTPVector<MTPint> &result) {
 		const auto peerId = peer->id;
 		auto &saved = _saved[peerId];
@@ -1642,8 +1823,8 @@ void Stories::togglePinnedList(
 		for (const auto &id : result.v) {
 			if (const auto maybeStory = lookup({ peerId, id.v })) {
 				const auto story = *maybeStory;
-				story->setPinned(pinned);
-				if (pinned) {
+				story->setInProfile(inProfile);
+				if (inProfile) {
 					const auto add = loaded || (id.v >= lastId);
 					if (!add) {
 						dirty = true;
@@ -1671,15 +1852,73 @@ void Stories::togglePinnedList(
 	}).send();
 }
 
-void Stories::report(
-		std::shared_ptr<Ui::Show> show,
-		FullStoryId id,
-		Ui::ReportReason reason,
-		QString text) {
-	if (const auto maybeStory = lookup(id)) {
-		const auto story = *maybeStory;
-		Api::SendReport(show, story->peer(), reason, text, story->id());
+bool Stories::canTogglePinnedList(
+		const std::vector<FullStoryId> &ids,
+		bool pin) const {
+	Expects(!ids.empty());
+
+	if (!pin) {
+		return true;
 	}
+
+	const auto peerId = ids.front().peer;
+	const auto i = _saved.find(peerId);
+	if (i == end(_saved)) {
+		return false;
+	}
+
+	auto &already = i->second.ids.pinnedToTop;
+	auto count = int(already.size());
+	for (const auto &id : ids) {
+		if (!ranges::contains(already, id.story)) {
+			++count;
+		}
+	}
+	return count <= maxPinnedCount();
+}
+
+int Stories::maxPinnedCount() const {
+	const auto appConfig = &_owner->session().appConfig();
+	return appConfig->get<int>(u"stories_pinned_to_top_count_max"_q, 3);
+}
+
+void Stories::togglePinnedList(
+		const std::vector<FullStoryId> &ids,
+		bool pin) {
+	if (ids.empty()) {
+		return;
+	}
+	const auto peerId = ids.front().peer;
+	auto &saved = _saved[peerId];
+	auto list = QVector<MTPint>();
+	list.reserve(maxPinnedCount());
+	for (const auto &id : saved.ids.pinnedToTop) {
+		if (pin || !ranges::contains(ids, FullStoryId{ peerId, id })) {
+			list.push_back(MTP_int(id));
+		}
+	}
+	if (pin) {
+		auto copy = ids;
+		ranges::sort(copy, ranges::greater());
+		for (const auto &id : copy) {
+			if (id.peer == peerId
+				&& !ranges::contains(saved.ids.pinnedToTop, id.story)) {
+				list.push_back(MTP_int(id.story));
+			}
+		}
+	}
+	const auto api = &_owner->session().api();
+	const auto peer = session().data().peer(peerId);
+	api->request(MTPstories_TogglePinnedToTop(
+		peer->input,
+		MTP_vector<MTPint>(list)
+	)).done([=] {
+		setPinnedToTop(peerId, list
+			| ranges::views::transform(&MTPint::v)
+			| ranges::to_vector);
+		_savedChanged.fire_copy(peerId);
+	}).send();
+
 }
 
 bool Stories::isQuitPrevent() {

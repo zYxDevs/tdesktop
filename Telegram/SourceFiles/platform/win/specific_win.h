@@ -8,7 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "platform/platform_specific.h"
-#include "base/platform/win/base_windows_h.h"
+
+#include <windows.h>
 
 namespace Data {
 class LocationPoint;
@@ -53,9 +54,6 @@ inline QString ExecutablePathForShortcuts() {
 namespace ThirdParty {
 
 void start();
-
-inline void finish() {
-}
 
 } // namespace ThirdParty
 } // namespace Platform

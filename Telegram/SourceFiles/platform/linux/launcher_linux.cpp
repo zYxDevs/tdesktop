@@ -33,16 +33,15 @@ int Launcher::exec() {
 	return Core::Launcher::exec();
 }
 
-void Launcher::initHook() {
-	QApplication::setAttribute(Qt::AA_DisableSessionManager, true);
-}
-
 bool Launcher::launchUpdater(UpdaterLaunch action) {
 	if (cExeName().isEmpty()) {
 		return false;
 	}
 
 	const auto justRelaunch = action == UpdaterLaunch::JustRelaunch;
+	if (action == UpdaterLaunch::PerformUpdate) {
+		_updating = true;
+	}
 
 	std::vector<std::string> argumentsList;
 
@@ -50,7 +49,9 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 	const auto launching = justRelaunch
 		? (cExeDir() + cExeName())
 		: cWriteProtected()
-		? u"pkexec"_q
+		? GLib::find_program_in_path("run0")
+		? u"run0"_q
+		: u"pkexec"_q
 		: (cExeDir() + u"Updater"_q);
 	argumentsList.push_back(launching.toStdString());
 
@@ -62,7 +63,7 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 			: launching;
 		argumentsList.push_back(argv0.toStdString());
 	} else if (cWriteProtected()) {
-		// Elevated process that pkexec should launch.
+		// Elevated process that run0/pkexec should launch.
 		const auto elevated = cWorkingDir() + u"tupdates/temp/Updater"_q;
 		argumentsList.push_back(elevated.toStdString());
 	}
@@ -82,8 +83,10 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 			argumentsList.push_back("-key");
 			argumentsList.push_back(cDataFile().toStdString());
 		}
-		argumentsList.push_back("-noupdate");
-		argumentsList.push_back("-tosettings");
+		if (!_updating) {
+			argumentsList.push_back("-noupdate");
+			argumentsList.push_back("-tosettings");
+		}
 		if (customWorkingDir()) {
 			argumentsList.push_back("-workdir");
 			argumentsList.push_back(cWorkingDir().toStdString());
@@ -106,18 +109,19 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 	Logs::closeMain();
 	CrashReports::Finish();
 
+	int waitStatus = 0;
 	if (justRelaunch) {
 		return GLib::spawn_async(
 			initialWorkingDir().toStdString(),
 			argumentsList,
-			std::nullopt,
+			{},
 			GLib::SpawnFlags::FILE_AND_ARGV_ZERO_,
 			nullptr,
 			nullptr,
 			nullptr);
 	} else if (!GLib::spawn_sync(
 			argumentsList,
-			std::nullopt,
+			{},
 			// if the spawn is sync, working directory is not set
 			// and GLib::SpawnFlags::LEAVE_DESCRIPTORS_OPEN_ is set,
 			// it goes through an optimized code path
@@ -126,8 +130,8 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 			nullptr,
 			nullptr,
 			nullptr,
-			nullptr,
-			nullptr)) {
+			&waitStatus,
+			nullptr) || !g_spawn_check_exit_status(waitStatus, nullptr)) {
 		return false;
 	}
 	return launchUpdater(UpdaterLaunch::JustRelaunch);

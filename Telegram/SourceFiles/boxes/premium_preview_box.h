@@ -45,7 +45,12 @@ void UpgradedStoriesPreviewBox(
 	not_null<Ui::GenericBox*> box,
 	not_null<Main::Session*> session);
 
-enum class PremiumPreview {
+void TelegramBusinessPreviewBox(
+	not_null<Ui::GenericBox*> box,
+	not_null<Main::Session*> session);
+
+enum class PremiumFeature {
+	// Premium features.
 	Stories,
 	DoubleLimits,
 	MoreUpload,
@@ -60,23 +65,41 @@ enum class PremiumPreview {
 	ProfileBadge,
 	AnimatedUserpics,
 	RealTimeTranslation,
+	Wallpapers,
+	TagsForMessages,
+	LastSeen,
+	MessagePrivacy,
+	Business,
+	Effects,
+	FilterTags,
+
+	// Business features.
+	BusinessLocation,
+	BusinessHours,
+	QuickReplies,
+	GreetingMessage,
+	AwayMessage,
+	BusinessBots,
+	ChatIntro,
+	ChatLinks,
 
 	kCount,
 };
 
 void ShowPremiumPreviewBox(
 	not_null<Window::SessionController*> controller,
-	PremiumPreview section,
+	PremiumFeature section,
 	Fn<void(not_null<Ui::BoxContent*>)> shown = nullptr);
 
 void ShowPremiumPreviewBox(
 	std::shared_ptr<ChatHelpers::Show> show,
-	PremiumPreview section,
-	Fn<void(not_null<Ui::BoxContent*>)> shown = nullptr);
+	PremiumFeature section,
+	Fn<void(not_null<Ui::BoxContent*>)> shown = nullptr,
+	bool hideSubscriptionButton = false);
 
 void ShowPremiumPreviewToBuy(
 	not_null<Window::SessionController*> controller,
-	PremiumPreview section,
+	PremiumFeature section,
 	Fn<void()> hiddenCallback = nullptr);
 
 void PremiumUnavailableBox(not_null<Ui::GenericBox*> box);

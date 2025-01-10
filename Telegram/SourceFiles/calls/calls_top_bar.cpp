@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "boxes/abstract_box.h"
 #include "base/timer.h"
+#include "styles/style_basic.h"
 #include "styles/style_calls.h"
 #include "styles/style_chat_helpers.h" // style::GroupCallUserpics
 #include "styles/style_layers.h"
@@ -49,7 +50,6 @@ enum class BarState {
 namespace {
 
 constexpr auto kUpdateDebugTimeoutMs = crl::time(500);
-constexpr auto kSwitchStateDuration = 120;
 
 constexpr auto kMinorBlobAlpha = 76. / 255.;
 
@@ -267,7 +267,7 @@ TopBar::TopBar(
 	? object_ptr<Ui::LabelSimple>(
 		this,
 		st::callBarLabel,
-		tr::lng_call_bar_hangup(tr::now).toUpper())
+		tr::lng_call_bar_hangup(tr::now))
 	: object_ptr<Ui::LabelSimple>(nullptr))
 , _mute(this, st::callBarMuteToggle)
 , _info(this)
@@ -374,7 +374,7 @@ void TopBar::initControls() {
 		};
 
 		_switchStateAnimation.stop();
-		const auto duration = (to - from) * kSwitchStateDuration;
+		const auto duration = (to - from) * st::universalDuration;
 		_switchStateAnimation.start(
 			_switchStateCallback,
 			from,

@@ -53,12 +53,11 @@ public:
 		QRect inner,
 		int size,
 		Fn<void()> update,
-		IconFactory iconFactory);
+		IconFactory iconFactory = nullptr);
 
 	enum class AddedButton : uchar {
 		None,
 		Expand,
-		Premium,
 	};
 	void applyList(
 		const std::vector<not_null<const Data::Reaction*>> &list,
@@ -110,7 +109,6 @@ private:
 	};
 
 	void clearStateForHidden(ReactionIcons &icon);
-	void paintPremiumIcon(QPainter &p, QPoint position, QRectF target) const;
 	void paintExpandIcon(QPainter &p, QPoint position, QRectF target) const;
 	void clearStateForSelectFinished(ReactionIcons &icon);
 
@@ -172,6 +170,10 @@ private:
 };
 
 [[nodiscard]] std::shared_ptr<Ui::AnimatedIcon> DefaultIconFactory(
+	not_null<Data::DocumentMedia*> media,
+	int size);
+
+[[nodiscard]] std::shared_ptr<Ui::AnimatedIcon> DefaultCachingIconFactory(
 	not_null<Data::DocumentMedia*> media,
 	int size);
 

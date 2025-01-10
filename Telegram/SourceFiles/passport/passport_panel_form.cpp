@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/padding_wrap.h"
 #include "ui/text/text_utilities.h"
 #include "ui/text/text_options.h"
+#include "ui/ui_utility.h"
 #include "styles/style_passport.h"
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
@@ -144,6 +145,14 @@ not_null<Ui::RpWidget*> PanelForm::setupContent() {
 		});
 	}, lifetime());
 	const auto policyUrl = _controller->privacyPolicyUrl();
+	auto policyLink = tr::lng_passport_policy(
+		lt_bot,
+		rpl::single(bot->name())
+	) | Ui::Text::ToLink(
+		policyUrl
+	) | rpl::map([=](TextWithEntities &&text) {
+		return Ui::Text::Wrapped(std::move(text), EntityType::Bold);
+	});
 	auto text = policyUrl.isEmpty()
 		? tr::lng_passport_allow(
 			lt_bot,
@@ -151,10 +160,7 @@ not_null<Ui::RpWidget*> PanelForm::setupContent() {
 		) | Ui::Text::ToWithEntities()
 		: tr::lng_passport_accept_allow(
 			lt_policy,
-			tr::lng_passport_policy(
-				lt_bot,
-				rpl::single(bot->name())
-			) | Ui::Text::ToLink(policyUrl),
+			std::move(policyLink),
 			lt_bot,
 			rpl::single('@' + bot->username()) | Ui::Text::ToWithEntities(),
 			Ui::Text::WithEntities);

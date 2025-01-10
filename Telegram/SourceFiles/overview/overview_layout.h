@@ -71,6 +71,8 @@ public:
 
 	void invalidateCache();
 
+	virtual void itemDataChanged() {
+	}
 	virtual void clearHeavyPart() {
 	}
 
@@ -185,6 +187,7 @@ struct Info : public RuntimeComponent<Info, LayoutItemBase> {
 
 struct MediaOptions {
 	bool spoiler = false;
+	bool pinned = false;
 	bool story = false;
 };
 
@@ -195,6 +198,7 @@ public:
 		not_null<HistoryItem*> parent,
 		not_null<PhotoData*> photo,
 		MediaOptions options);
+	~Photo();
 
 	void initDimensions() override;
 	int32 resizeGetHeight(int32 width) override;
@@ -203,6 +207,7 @@ public:
 		QPoint point,
 		StateRequest request) const override;
 
+	void itemDataChanged() override;
 	void clearHeavyPart() override;
 
 private:
@@ -217,6 +222,7 @@ private:
 
 	QPixmap _pix;
 	bool _goodLoaded = false;
+	bool _pinned = false;
 	bool _story = false;
 
 };
@@ -295,6 +301,7 @@ public:
 		QPoint point,
 		StateRequest request) const override;
 
+	void itemDataChanged() override;
 	void clearHeavyPart() override;
 	void clearSpoiler() override;
 
@@ -317,6 +324,7 @@ private:
 
 	QPixmap _pix;
 	bool _pixBlurred = true;
+	bool _pinned = false;
 	bool _story = false;
 
 };
@@ -354,7 +362,9 @@ private:
 
 	const style::OverviewFileLayout &_st;
 
-	Ui::Text::String _name, _details;
+	Ui::Text::String _name;
+	Ui::Text::String _details;
+	Ui::Text::String _caption;
 	int _nameVersion = 0;
 
 	void updateName();

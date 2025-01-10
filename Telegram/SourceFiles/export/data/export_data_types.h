@@ -24,10 +24,10 @@ namespace Data {
 
 using Utf8String = QByteArray;
 
-int PeerColorIndex(BareId bareId);
+uint8 PeerColorIndex(BareId bareId);
 BareId PeerToBareId(PeerId peerId);
-int PeerColorIndex(PeerId peerId);
-int ApplicationColorIndex(int applicationId);
+uint8 PeerColorIndex(PeerId peerId);
+uint8 ApplicationColorIndex(int applicationId);
 int DomainApplicationId(const Utf8String &data);
 
 Utf8String ParseString(const MTPstring &data);
@@ -108,16 +108,18 @@ struct ContactInfo {
 	Utf8String lastName;
 	Utf8String phoneNumber;
 	TimeId date = 0;
+	uint8 colorIndex = 0;
 
 	Utf8String name() const;
 };
 
 ContactInfo ParseContactInfo(const MTPUser &data);
-int ContactColorIndex(const ContactInfo &data);
+uint8 ContactColorIndex(const ContactInfo &data);
 
 struct Photo {
 	uint64 id = 0;
 	TimeId date = 0;
+	bool spoilered = false;
 
 	Image image;
 };
@@ -145,6 +147,7 @@ struct Document {
 	bool isVoiceMessage = false;
 	bool isVideoFile = false;
 	bool isAudioFile = false;
+	bool spoilered = false;
 };
 
 struct SharedContact {
@@ -181,6 +184,18 @@ struct Invoice {
 	int32 receiptMsgId = 0;
 };
 
+struct Media;
+struct PaidMedia {
+	PaidMedia() = default;
+	PaidMedia(PaidMedia &&) = default;
+	PaidMedia &operator=(PaidMedia &&) = default;
+	PaidMedia(const PaidMedia &) = delete;
+	PaidMedia &operator=(const PaidMedia &) = delete;
+
+	uint64 stars = 0;
+	std::vector<std::unique_ptr<Media>> extended;
+};
+
 struct Poll {
 	struct Answer {
 		Utf8String text;
@@ -194,6 +209,32 @@ struct Poll {
 	std::vector<Answer> answers;
 	int totalVotes = 0;
 	bool closed = false;
+};
+
+struct GiveawayStart {
+	std::vector<QString> countries;
+	std::vector<ChannelId> channels;
+	QString additionalPrize;
+	TimeId untilDate = 0;
+	uint64 credits = 0;
+	int quantity = 0;
+	int months = 0;
+	bool all = false;
+};
+
+struct GiveawayResults {
+	ChannelId channel = 0;
+	std::vector<PeerId> winners;
+	QString additionalPrize;
+	TimeId untilDate = 0;
+	int32 launchId = 0;
+	int additionalPeersCount = 0;
+	int winnersCount = 0;
+	int unclaimedCount = 0;
+	int months = 0;
+	uint64 credits = 0;
+	bool refunded = false;
+	bool all = false;
 };
 
 struct UserpicsSlice {
@@ -210,9 +251,11 @@ struct User {
 	BareId bareId = 0;
 	ContactInfo info;
 	Utf8String username;
+	uint8 colorIndex = 0;
 	bool isBot = false;
 	bool isSelf = false;
 	bool isReplies = false;
+	bool isVerifyCodes = false;
 
 	MTPInputUser input = MTP_inputUserEmpty();
 
@@ -229,6 +272,7 @@ struct Chat {
 	ChannelId migratedToChannelId = 0;
 	Utf8String title;
 	Utf8String username;
+	uint8 colorIndex = 0;
 	bool isBroadcast = false;
 	bool isSupergroup = false;
 
@@ -242,6 +286,7 @@ struct Peer {
 	PeerId id() const;
 	Utf8String name() const;
 	MTPInputPeer input() const;
+	uint8 colorIndex() const;
 
 	const User *user() const;
 	const Chat *chat() const;
@@ -325,6 +370,9 @@ struct Media {
 		Game,
 		Invoice,
 		Poll,
+		GiveawayStart,
+		GiveawayResults,
+		PaidMedia,
 		UnsupportedMedia> content;
 	TimeId ttl = 0;
 
@@ -355,6 +403,39 @@ Media ParseMedia(
 	const MTPMessageMedia &data,
 	const QString &folder,
 	TimeId date);
+
+struct TextPart {
+	enum class Type {
+		Text,
+		Unknown,
+		Mention,
+		Hashtag,
+		BotCommand,
+		Url,
+		Email,
+		Bold,
+		Italic,
+		Code,
+		Pre,
+		TextUrl,
+		MentionName,
+		Phone,
+		Cashtag,
+		Underline,
+		Strike,
+		Blockquote,
+		BankCard,
+		Spoiler,
+		CustomEmoji,
+	};
+	Type type = Type::Text;
+	Utf8String text;
+	Utf8String additional;
+
+	[[nodiscard]] static Utf8String UnavailableEmoji() {
+		return "(unavailable)";
+	}
+};
 
 struct ActionChatCreate {
 	Utf8String title;
@@ -422,6 +503,7 @@ struct ActionPhoneCall {
 		Disconnect,
 		Hangup,
 		Busy,
+		AllowGroupCall,
 	};
 	DiscardReason discardReason = DiscardReason::Unknown;
 	int duration = 0;
@@ -504,7 +586,7 @@ struct ActionWebViewDataSent {
 
 struct ActionGiftPremium {
 	Utf8String cost;
-	int months;
+	int months = 0;
 };
 
 struct ActionTopicCreate {
@@ -521,15 +603,63 @@ struct ActionSuggestProfilePhoto {
 };
 
 struct ActionSetChatWallPaper {
+	bool same = false;
+	bool both = false;
 	// #TODO wallpapers
 };
 
-struct ActionSetSameChatWallPaper {
+struct ActionGiftCode {
+	QByteArray code;
+	PeerId boostPeerId = 0;
+	int months = 0;
+	bool viaGiveaway = false;
+	bool unclaimed = false;
 };
 
 struct ActionRequestedPeer {
-	PeerId peerId = 0;
+	std::vector<PeerId> peers;
 	int buttonId = 0;
+};
+
+struct ActionGiveawayLaunch {
+};
+
+struct ActionGiveawayResults {
+	int winners = 0;
+	int unclaimed = 0;
+	bool credits = false;
+};
+
+struct ActionBoostApply {
+	int boosts = 0;
+};
+
+struct ActionPaymentRefunded {
+	PeerId peerId = 0;
+	Utf8String currency;
+	uint64 amount = 0;
+	Utf8String transactionId;
+};
+
+struct ActionGiftStars {
+	Utf8String cost;
+	int credits = 0;
+};
+
+struct ActionPrizeStars {
+	PeerId peerId = 0;
+	uint64 amount = 0;
+	Utf8String transactionId;
+	int32 giveawayMsgId = 0;
+	bool isUnclaimed = false;
+};
+
+struct ActionStarGift {
+	uint64 giftId = 0;
+	int64 stars = 0;
+	std::vector<TextPart> text;
+	bool anonymous = false;
+	bool limited = false;
 };
 
 struct ServiceAction {
@@ -570,7 +700,14 @@ struct ServiceAction {
 		ActionSuggestProfilePhoto,
 		ActionRequestedPeer,
 		ActionSetChatWallPaper,
-		ActionSetSameChatWallPaper> content;
+		ActionGiftCode,
+		ActionGiveawayLaunch,
+		ActionGiveawayResults,
+		ActionBoostApply,
+		ActionPaymentRefunded,
+		ActionGiftStars,
+		ActionPrizeStars,
+		ActionStarGift> content;
 };
 
 ServiceAction ParseServiceAction(
@@ -578,37 +715,28 @@ ServiceAction ParseServiceAction(
 	const MTPMessageAction &data,
 	const QString &mediaFolder);
 
-struct TextPart {
+struct Reaction {
 	enum class Type {
-		Text,
-		Unknown,
-		Mention,
-		Hashtag,
-		BotCommand,
-		Url,
-		Email,
-		Bold,
-		Italic,
-		Code,
-		Pre,
-		TextUrl,
-		MentionName,
-		Phone,
-		Cashtag,
-		Underline,
-		Strike,
-		Blockquote,
-		BankCard,
-		Spoiler,
+		Empty,
+		Emoji,
 		CustomEmoji,
+		Paid,
 	};
-	Type type = Type::Text;
-	Utf8String text;
-	Utf8String additional;
 
-	[[nodiscard]] static Utf8String UnavailableEmoji() {
-		return "(unavailable)";
-	}
+	[[nodiscard]] static Utf8String TypeToString(const Reaction &);
+
+	[[nodiscard]] static Utf8String Id(const Reaction &);
+
+	struct Recent {
+		PeerId peerId = 0;
+		TimeId date = 0;
+	};
+
+	Type type;
+	QString emoji;
+	Utf8String documentId;
+	uint32 count = 0;
+	std::vector<Recent> recent;
 };
 
 struct MessageId {
@@ -636,6 +764,36 @@ inline bool operator>=(MessageId a, MessageId b) {
 	return !(a < b);
 }
 
+struct HistoryMessageMarkupButton {
+	enum class Type {
+		Default,
+		Url,
+		Callback,
+		CallbackWithPassword,
+		RequestPhone,
+		RequestLocation,
+		RequestPoll,
+		RequestPeer,
+		SwitchInline,
+		SwitchInlineSame,
+		Game,
+		Buy,
+		Auth,
+		UserProfile,
+		WebView,
+		SimpleWebView,
+		CopyText,
+	};
+
+	static QByteArray TypeToString(const HistoryMessageMarkupButton &);
+
+	Type type;
+	QString text;
+	QByteArray data;
+	QString forwardText;
+	int64 buttonId = 0;
+};
+
 struct Message {
 	int32 id = 0;
 	TimeId date = 0;
@@ -654,10 +812,12 @@ struct Message {
 	int32 replyToMsgId = 0;
 	PeerId replyToPeerId = 0;
 	std::vector<TextPart> text;
+	std::vector<Reaction> reactions;
 	Media media;
 	int64 media_group_id;
 	ServiceAction action;
 	bool out = false;
+	std::vector<std::vector<HistoryMessageMarkupButton>> inlineButtonRows;
 
 	File &file();
 	const File &file() const;
@@ -711,6 +871,7 @@ struct DialogInfo {
 		Unknown,
 		Self,
 		Replies,
+		VerifyCodes,
 		Personal,
 		Bot,
 		PrivateGroup,
@@ -727,6 +888,7 @@ struct DialogInfo {
 	int32 topMessageId = 0;
 	TimeId topMessageDate = 0;
 	PeerId peerId = 0;
+	uint8 colorIndex = 0;
 
 	MTPInputPeer migratedFromInput = MTP_inputPeerEmpty();
 	ChannelId migratedToChannelId = 0;

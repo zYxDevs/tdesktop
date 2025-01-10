@@ -26,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/popup_menu.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
+#include "ui/vertical_list.h"
 #include "window/window_session_controller.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
@@ -35,6 +36,22 @@ namespace Settings {
 namespace {
 
 using Notify = Data::DefaultNotify;
+
+struct Factory : AbstractSectionFactory {
+	explicit Factory(Notify type) : type(type) {
+	}
+
+	object_ptr<AbstractSection> create(
+		not_null<QWidget*> parent,
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::ScrollArea*> scroll,
+		rpl::producer<Container> containerValue
+	) const final override {
+		return object_ptr<NotificationsType>(parent, controller, type);
+	}
+
+	const Notify type = {};
+};
 
 class AddExceptionBoxController final
 	: public ChatsListBoxController
@@ -168,9 +185,11 @@ base::unique_qptr<Ui::PopupMenu> AddExceptionBoxController::rowContextMenu(
 
 auto AddExceptionBoxController::createRow(not_null<History*> history)
 -> std::unique_ptr<AddExceptionBoxController::Row> {
-	if (Data::DefaultNotifyType(history->peer) != _type
-		|| history->peer->isSelf()
-		|| history->peer->isRepliesChat()) {
+	const auto peer = history->peer;
+	if (Data::DefaultNotifyType(peer) != _type
+		|| peer->isSelf()
+		|| peer->isRepliesChat()
+		|| peer->isVerifyCodes()) {
 		return nullptr;
 	}
 	return std::make_unique<Row>(history);
@@ -351,11 +370,6 @@ void ExceptionsController::sort() {
 	delegate()->peerListSortRows(predicate);
 }
 
-template <Notify kType>
-[[nodiscard]] Type Id() {
-	return &NotificationsTypeMetaImplementation<kType>::Meta;
-}
-
 [[nodiscard]] rpl::producer<QString> Title(Notify type) {
 	switch (type) {
 	case Notify::User: return tr::lng_notification_title_private_chats();
@@ -369,13 +383,13 @@ void SetupChecks(
 		not_null<Ui::VerticalLayout*> container,
 		not_null<Window::SessionController*> controller,
 		Notify type) {
-	AddSubsectionTitle(container, Title(type));
+	Ui::AddSubsectionTitle(container, Title(type));
 
 	const auto session = &controller->session();
 	const auto settings = &session->data().notifySettings();
 
 	const auto enabled = container->add(
-		CreateButton(
+		CreateButtonWithIcon(
 			container,
 			tr::lng_notification_enable(),
 			st::settingsButton,
@@ -414,7 +428,7 @@ void SetupChecks(
 		return !sound || !sound->none;
 	};
 	const auto sound = soundInner->add(
-		CreateButton(
+		CreateButtonWithIcon(
 			soundInner,
 			tr::lng_notification_sound(),
 			st::settingsButton,
@@ -493,7 +507,7 @@ void SetupExceptions(
 		not_null<Ui::VerticalLayout*> container,
 		not_null<Window::SessionController*> window,
 		Notify type) {
-	const auto add = AddButton(
+	const auto add = AddButtonWithIcon(
 		container,
 		tr::lng_notification_exceptions_add(),
 		st::settingsButtonActive,
@@ -537,7 +551,7 @@ void SetupExceptions(
 	const auto wrap = container->add(
 		object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
 			container,
-			CreateButton(
+			CreateButtonWithIcon(
 				container,
 				tr::lng_notification_exceptions_clear(),
 				st::settingsAttentionButtonWithIcon,
@@ -562,15 +576,6 @@ void SetupExceptions(
 
 } // namespace
 
-Type NotificationsTypeId(Notify type) {
-	switch (type) {
-	case Notify::User: return Id<Notify::User>();
-	case Notify::Group: return Id<Notify::Group>();
-	case Notify::Broadcast: return Id<Notify::Broadcast>();
-	}
-	Unexpected("Type in NotificationTypeId.");
-}
-
 NotificationsType::NotificationsType(
 	QWidget *parent,
 	not_null<Window::SessionController*> controller,
@@ -589,20 +594,20 @@ rpl::producer<QString> NotificationsType::title() {
 	Unexpected("Type in NotificationsType.");
 }
 
-Type NotificationsType::id() const {
-	return NotificationsTypeId(_type);
+Type NotificationsType::Id(Notify type) {
+	return std::make_shared<Factory>(type);
 }
 
 void NotificationsType::setupContent(
 		not_null<Window::SessionController*> controller) {
 	const auto container = Ui::CreateChild<Ui::VerticalLayout>(this);
 
-	AddSkip(container, st::settingsPrivacySkip);
+	Ui::AddSkip(container, st::settingsPrivacySkip);
 	SetupChecks(container, controller, _type);
 
-	AddSkip(container);
-	AddDivider(container);
-	AddSkip(container);
+	Ui::AddSkip(container);
+	Ui::AddDivider(container);
+	Ui::AddSkip(container);
 
 	SetupExceptions(container, controller, _type);
 

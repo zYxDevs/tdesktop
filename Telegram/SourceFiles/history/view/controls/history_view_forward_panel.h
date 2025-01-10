@@ -20,6 +20,7 @@ class SpoilerAnimation;
 
 namespace Data {
 class Thread;
+struct WebPageDraft;
 } // namespace Data
 
 namespace Window {
@@ -46,8 +47,10 @@ public:
 
 	[[nodiscard]] rpl::producer<> itemsUpdated() const;
 
-	void editOptions(std::shared_ptr<ChatHelpers::Show> show);
+	void applyOptions(Data::ForwardOptions options);
+	void editToNextOption();
 
+	[[nodiscard]] const Data::ResolvedForwardDraft &draft() const;
 	[[nodiscard]] const HistoryItemsList &items() const;
 	[[nodiscard]] bool empty() const;
 
@@ -69,5 +72,18 @@ private:
 	int _nameVersion = 0;
 
 };
+
+void ClearDraftReplyTo(
+	not_null<History*> history,
+	MsgId topicRootId,
+	FullMsgId equalTo);
+
+void EditWebPageOptions(
+	std::shared_ptr<ChatHelpers::Show> show,
+	not_null<WebPageData*> webpage,
+	Data::WebPageDraft draft,
+	Fn<void(Data::WebPageDraft)> done);
+
+[[nodiscard]] bool HasOnlyForcedForwardedInfo(const HistoryItemsList &list);
 
 } // namespace HistoryView::Controls

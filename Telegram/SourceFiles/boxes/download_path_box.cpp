@@ -25,7 +25,7 @@ DownloadPathBox::DownloadPathBox(
 , _path(Core::App().settings().downloadPath())
 , _pathBookmark(Core::App().settings().downloadPathBookmark())
 , _group(std::make_shared<Ui::RadioenumGroup<Directory>>(typeFromPath(_path)))
-, _default(Core::App().canReadDefaultDownloadPath(true)
+, _default(Core::App().canReadDefaultDownloadPath()
 	? object_ptr<Ui::Radioenum<Directory>>(
 		this,
 		_group,
@@ -44,7 +44,9 @@ void DownloadPathBox::prepare() {
 
 	setTitle(tr::lng_download_path_header());
 
-	_group->setChangedCallback([this](Directory value) { radioChanged(value); });
+	_group->setChangedCallback([this](Directory value) {
+		radioChanged(value);
+	});
 
 	_pathLink->addClickHandler([=] { editPath(); });
 	if (!_path.isEmpty() && _path != FileDialog::Tmp()) {
@@ -54,7 +56,7 @@ void DownloadPathBox::prepare() {
 }
 
 void DownloadPathBox::updateControlsVisibility() {
-	auto custom = (_group->value() == Directory::Custom);
+	auto custom = (_group->current() == Directory::Custom);
 	_pathLink->setVisible(custom);
 
 	auto newHeight = st::boxOptionListPadding.top() + (_default ? _default->getMargins().top() + _default->heightNoMargins() : 0) + st::boxOptionListSkip + _temp->heightNoMargins() + st::boxOptionListSkip + _dir->heightNoMargins();
@@ -122,7 +124,7 @@ void DownloadPathBox::editPath() {
 
 void DownloadPathBox::save() {
 #ifndef OS_WIN_STORE
-	auto value = _group->value();
+	auto value = _group->current();
 	auto computePath = [this, value] {
 		if (value == Directory::Custom) {
 			return _path;
@@ -147,7 +149,7 @@ void DownloadPathBox::setPathText(const QString &text) {
 DownloadPathBox::Directory DownloadPathBox::typeFromPath(
 		const QString &path) {
 	if (path.isEmpty()) {
-		return Core::App().canReadDefaultDownloadPath(true)
+		return Core::App().canReadDefaultDownloadPath()
 			? Directory::Downloads
 			: Directory::Temp;
 	} else if (path == FileDialog::Tmp()) {

@@ -15,8 +15,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/vertical_layout.h"
 #include "ui/widgets/color_editor.h"
 #include "ui/wrap/padding_wrap.h"
-#include "settings/settings_common.h"
 #include "ui/widgets/buttons.h"
+#include "ui/vertical_list.h"
 #include "ui/rect.h"
 #include "styles/style_info_userpic_builder.h"
 #include "styles/style_boxes.h"
@@ -137,7 +137,7 @@ void ColorsLine::fillButtons() {
 					wasChosen->setSelectedProgress(1. - progress);
 				}
 				nowChosen->setSelectedProgress(progress);
-			}, 0., 1., st::userpicBuilderEmojiSlideDuration);
+			}, 0., 1., st::universalDuration);
 		});
 		if (i < _colors->size()) {
 			button->setBrush((*_colors)[i]);
@@ -164,7 +164,7 @@ void ColorsLine::fillButtons() {
 		setLastChosen();
 	});
 	for (const auto &wrap : _wraps) {
-		wrap->setDuration(st::userpicBuilderEmojiSlideDuration);
+		wrap->setDuration(st::universalDuration);
 	}
 }
 
@@ -213,7 +213,7 @@ void ColorsLine::processChange(
 			const auto left = anim::interpolate(wasLeft, nowLeft, value);
 			_wraps[i]->moveToLeft(left, 0);
 		}
-	}, 0., 1., st::userpicBuilderEmojiSlideDuration);
+	}, 0., 1., st::universalDuration);
 }
 
 void ColorsLine::setLastChosen() const {
@@ -256,9 +256,9 @@ object_ptr<Ui::RpWidget> CreateGradientEditor(
 		preview->setDocument(document);
 	}
 
-	Settings::AddSkip(container);
-	Settings::AddDivider(container);
-	Settings::AddSkip(container);
+	Ui::AddSkip(container);
+	Ui::AddDivider(container);
+	Ui::AddSkip(container);
 
 	const auto state = container->lifetime().make_state<State>();
 	state->colors = std::move(startColors);
@@ -267,9 +267,9 @@ object_ptr<Ui::RpWidget> CreateGradientEditor(
 		&state->colors));
 	buttonsContainer->resize(0, st::userpicBuilderEmojiAccentColorSize);
 
-	Settings::AddSkip(container);
-	Settings::AddDivider(container);
-	Settings::AddSkip(container);
+	Ui::AddSkip(container);
+	Ui::AddDivider(container);
+	Ui::AddSkip(container);
 
 	const auto editor = container->add(object_ptr<ColorEditor>(
 		container,

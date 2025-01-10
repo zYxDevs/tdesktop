@@ -123,6 +123,7 @@ void GroupCall::requestParticipants() {
 			return;
 		}
 	}
+	api().request(base::take(_participantsRequestId)).cancel();
 	_participantsRequestId = api().request(MTPphone_GetGroupParticipants(
 		input(),
 		MTP_vector<MTPInputPeer>(), // ids
@@ -132,8 +133,8 @@ void GroupCall::requestParticipants() {
 			: _nextOffset),
 		MTP_int(kRequestPerPage)
 	)).done([=](const MTPphone_GroupParticipants &result) {
+		_participantsRequestId = 0;
 		result.match([&](const MTPDphone_groupParticipants &data) {
-			_participantsRequestId = 0;
 			const auto reloaded = processSavedFullCall();
 			_nextOffset = qs(data.vnext_offset());
 			_peer->owner().processUsers(data.vusers());
@@ -168,7 +169,7 @@ bool GroupCall::processSavedFullCall() {
 	if (!_savedFull) {
 		return false;
 	}
-	_reloadRequestId = 0;
+	api().request(base::take(_reloadRequestId)).cancel();
 	_reloadLastFinished = crl::now();
 	processFullCallFields(*base::take(_savedFull));
 	return true;
@@ -346,6 +347,7 @@ void GroupCall::discard(const MTPDgroupCallDiscarded &data) {
 	Core::App().calls().applyGroupCallUpdateChecked(
 		&peer->session(),
 		MTP_updateGroupCall(
+			MTP_flags(MTPDupdateGroupCall::Flag::f_chat_id),
 			MTP_long(peer->isChat()
 				? peerToChat(peer->id).bare
 				: peerToChannel(peer->id).bare),
@@ -511,10 +513,8 @@ void GroupCall::reloadIfStale() {
 void GroupCall::reload() {
 	if (_reloadRequestId || _applyingQueuedUpdates) {
 		return;
-	} else if (_participantsRequestId) {
-		api().request(_participantsRequestId).cancel();
-		_participantsRequestId = 0;
 	}
+	api().request(base::take(_participantsRequestId)).cancel();
 
 	DEBUG_LOG(("Group Call Participants: "
 		"Reloading with queued: %1"
@@ -848,7 +848,7 @@ void GroupCall::requestUnknownParticipants() {
 		auto result = base::flat_map<uint32, LastSpokeTimes>();
 		result.reserve(kRequestPerPage);
 		while (result.size() < kRequestPerPage) {
-			const auto [ssrc, when] = _unknownSpokenSsrcs.back();
+			const auto &[ssrc, when] = _unknownSpokenSsrcs.back();
 			result.emplace(ssrc, when);
 			_unknownSpokenSsrcs.erase(_unknownSpokenSsrcs.end() - 1);
 		}
@@ -864,7 +864,7 @@ void GroupCall::requestUnknownParticipants() {
 			result.reserve(available);
 			while (result.size() < available) {
 				const auto &back = _unknownSpokenPeerIds.back();
-				const auto [participantPeerId, when] = back;
+				const auto &[participantPeerId, when] = back;
 				result.emplace(participantPeerId, when);
 				_unknownSpokenPeerIds.erase(_unknownSpokenPeerIds.end() - 1);
 			}

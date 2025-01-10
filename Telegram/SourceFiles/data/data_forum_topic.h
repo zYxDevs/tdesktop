@@ -48,11 +48,32 @@ class Forum;
 	const style::ForumTopicIcon &st);
 [[nodiscard]] QImage ForumTopicGeneralIconFrame(
 	int size,
-	const style::color &color);
+	const QColor &color);
 [[nodiscard]] TextWithEntities ForumTopicIconWithTitle(
 	MsgId rootId,
 	DocumentId iconId,
 	const QString &title);
+
+[[nodiscard]] QString ForumGeneralIconTitle();
+[[nodiscard]] bool IsForumGeneralIconTitle(const QString &title);
+[[nodiscard]] int32 ForumGeneralIconColor(const QColor &color);
+[[nodiscard]] QColor ParseForumGeneralIconColor(int32 value);
+
+struct TopicIconDescriptor {
+	QString title;
+	int32 colorId = 0;
+
+	[[nodiscard]] bool empty() const {
+		return !colorId && title.isEmpty();
+	}
+	explicit operator bool() const {
+		return !empty();
+	}
+};
+
+[[nodiscard]] QString TopicIconEmojiEntity(TopicIconDescriptor descriptor);
+[[nodiscard]] TopicIconDescriptor ParseTopicIconEmojiEntity(
+	QStringView entity);
 
 class ForumTopic final : public Thread {
 public:
@@ -98,6 +119,7 @@ public:
 
 	void setRealRootId(MsgId realId);
 	void readTillEnd();
+	void requestChatListMessage();
 
 	void applyTopic(const MTPDforumTopic &data);
 
@@ -109,9 +131,9 @@ public:
 	Dialogs::BadgesState chatListBadgesState() const override;
 	HistoryItem *chatListMessage() const override;
 	bool chatListMessageKnown() const override;
-	void requestChatListMessage() override;
 	const QString &chatListName() const override;
 	const QString &chatListNameSortKey() const override;
+	int chatListNameVersion() const override;
 	const base::flat_set<QString> &chatListNameWords() const override;
 	const base::flat_set<QChar> &chatListFirstLetters() const override;
 
@@ -186,8 +208,6 @@ private:
 	void setChatListMessage(HistoryItem *item);
 	void allowChatListMessageResolve();
 	void resolveChatListMessageGroup();
-
-	int chatListNameVersion() const override;
 
 	void subscribeToUnreadChanges();
 	[[nodiscard]] Dialogs::UnreadState unreadStateFor(

@@ -8,16 +8,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_photo.h"
 
 #include "data/data_session.h"
-#include "data/data_file_origin.h"
 #include "data/data_reply_preview.h"
 #include "data/data_photo_media.h"
-#include "ui/image/image.h"
 #include "main/main_session.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "media/streaming/media_streaming_loader_local.h"
 #include "media/streaming/media_streaming_loader_mtproto.h"
-#include "mainwidget.h"
 #include "storage/file_download.h"
 #include "core/application.h"
 
@@ -53,6 +50,38 @@ PhotoData::~PhotoData() {
 	base::take(_videoSizes);
 }
 
+void PhotoData::setFields(TimeId date, bool hasAttachedStickers) {
+	_dateOrExtendedVideoDuration = date;
+	_hasStickers = hasAttachedStickers;
+	_extendedMediaPreview = false;
+}
+
+void PhotoData::setExtendedMediaPreview(
+		QSize dimensions,
+		const QByteArray &inlineThumbnailBytes,
+		std::optional<TimeId> videoDuration) {
+	_extendedMediaPreview = true;
+	updateImages(
+		inlineThumbnailBytes,
+		{},
+		{},
+		{ .location = { {}, dimensions.width(), dimensions.height() } },
+		{},
+		{},
+		{});
+	_dateOrExtendedVideoDuration = videoDuration ? (*videoDuration + 1) : 0;
+}
+
+bool PhotoData::extendedMediaPreview() const {
+	return _extendedMediaPreview;
+}
+
+std::optional<TimeId> PhotoData::extendedMediaVideoDuration() const {
+	return (_extendedMediaPreview && _dateOrExtendedVideoDuration)
+		? TimeId(_dateOrExtendedVideoDuration - 1)
+		: std::optional<TimeId>();
+}
+
 Data::Session &PhotoData::owner() const {
 	return *_owner;
 }
@@ -75,6 +104,10 @@ void PhotoData::load(
 		LoadFromCloudSetting fromCloud,
 		bool autoLoading) {
 	load(PhotoSize::Large, origin, fromCloud, autoLoading);
+}
+
+TimeId PhotoData::date() const {
+	return _extendedMediaPreview ? 0 : _dateOrExtendedVideoDuration;
 }
 
 bool PhotoData::loading() const {
@@ -219,7 +252,7 @@ Image *PhotoData::getReplyPreview(
 
 Image *PhotoData::getReplyPreview(not_null<HistoryItem*> item) {
 	const auto media = item->media();
-	const auto spoiler = media && media->hasSpoiler();
+	const auto spoiler = (media && media->hasSpoiler());
 	return getReplyPreview(item->fullId(), item->history()->peer, spoiler);
 }
 

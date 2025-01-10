@@ -17,7 +17,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/tooltip.h"
+#include "ui/dynamic_image.h"
 #include "ui/painter.h"
+#include "ui/ui_utility.h"
 #include "styles/style_dialogs.h"
 
 #include <QtWidgets/QApplication>
@@ -36,7 +38,6 @@ constexpr auto kCollapseAfterRatio = 0.68;
 constexpr auto kFrictionRatio = 0.15;
 constexpr auto kExpandCatchUpDuration = crl::time(200);
 constexpr auto kMaxTooltipNames = 3;
-constexpr auto kStoriesTooltipHideBgOpacity = 0.2;
 
 [[nodiscard]] int AvailableNameWidth(const style::DialogsStoriesList &st) {
 	const auto &full = st.full;
@@ -184,9 +185,9 @@ rpl::producer<bool> List::toggleExpandedRequests() const {
 	return _toggleExpandedRequests.events();
 }
 
-rpl::producer<> List::entered() const {
-	return _entered.events();
-}
+//rpl::producer<> List::entered() const {
+//	return _entered.events();
+//}
 
 rpl::producer<> List::loadMoreRequests() const {
 	return _loadMoreRequests.events();
@@ -217,9 +218,9 @@ void List::requestExpanded(bool expanded) {
 	_toggleExpandedRequests.fire_copy(_expanded);
 }
 
-void List::enterEventHook(QEnterEvent *e) {
-	_entered.fire({});
-}
+//void List::enterEventHook(QEnterEvent *e) {
+	//_entered.fire({});
+//}
 
 void List::resizeEvent(QResizeEvent *e) {
 	updateScrollMax();
@@ -903,7 +904,7 @@ TextWithEntities List::computeTooltipText() const {
 }
 
 void List::setShowTooltip(
-		not_null<QWidget*> tooltipParent,
+		not_null<Ui::RpWidget*> tooltipParent,
 		rpl::producer<bool> shown,
 		Fn<void()> hide) {
 	_tooltip = nullptr;
@@ -925,16 +926,6 @@ void List::setShowTooltip(
 	tooltip->toggleFast(false);
 	updateTooltipGeometry();
 
-	const auto handle = tooltipParent->window()->windowHandle();
-	auto windowActive = rpl::single(
-		handle->isActive()
-	) | rpl::then(base::qt_signal_producer(
-		handle,
-		&QWindow::activeChanged
-	) | rpl::map([=] {
-		return handle->isActive();
-	})) | rpl::distinct_until_changed();
-
 	{
 		const auto recompute = [=] {
 			updateTooltipGeometry();
@@ -955,7 +946,7 @@ void List::setShowTooltip(
 		_tooltipText.value() | rpl::map(
 			notEmpty
 		) | rpl::distinct_until_changed(),
-		std::move(windowActive)
+		tooltipParent->windowActiveValue()
 	) | rpl::start_with_next([=](bool, bool, bool active) {
 		_tooltipWindowActive = active;
 		if (!isHidden()) {
@@ -981,7 +972,7 @@ void List::toggleTooltip(bool fast) {
 		&& !isHidden()
 		&& _tooltipNotHidden.current()
 		&& !_tooltipText.current().empty()
-		&& window()->windowHandle()->isActive();
+		&& isActiveWindow();
 	if (_tooltip) {
 		if (fast) {
 			_tooltip->toggleFast(shown);

@@ -7,7 +7,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include <rpl/event_stream.h>
 #include <rpl/filter.h>
 #include <rpl/variable.h>
 #include "base/timer.h"
@@ -32,7 +31,18 @@ class Templates;
 namespace Data {
 class Session;
 class Changes;
+class RecentPeers;
+class ScheduledMessages;
+class SponsoredMessages;
+class TopPeers;
+class Factchecks;
+class LocationPickers;
+class Credits;
 } // namespace Data
+
+namespace HistoryView::Reactions {
+class CachedIconFactory;
+} // namespace HistoryView::Reactions
 
 namespace Storage {
 class DownloadManagerMtproto;
@@ -57,9 +67,14 @@ namespace InlineBots {
 class AttachWebView;
 } // namespace InlineBots
 
+namespace Ui {
+struct ColorIndicesCompressed;
+} // namespace Ui
+
 namespace Main {
 
 class Account;
+class AppConfig;
 class Domain;
 class SessionSettings;
 class SendAsPeers;
@@ -80,10 +95,13 @@ public:
 	[[nodiscard]] Domain &domain() const;
 	[[nodiscard]] Storage::Domain &domainLocal() const;
 
+	[[nodiscard]] AppConfig &appConfig() const;
+
 	[[nodiscard]] bool premium() const;
 	[[nodiscard]] bool premiumPossible() const;
 	[[nodiscard]] rpl::producer<bool> premiumPossibleValue() const;
 	[[nodiscard]] bool premiumBadgesShown() const;
+	[[nodiscard]] bool premiumCanBuy() const;
 
 	[[nodiscard]] bool isTestMode() const;
 	[[nodiscard]] uint64 uniqueId() const; // userId() with TestDC shift.
@@ -96,6 +114,30 @@ public:
 
 	[[nodiscard]] Data::Changes &changes() const {
 		return *_changes;
+	}
+	[[nodiscard]] Data::RecentPeers &recentPeers() const {
+		return *_recentPeers;
+	}
+	[[nodiscard]] Data::SponsoredMessages &sponsoredMessages() const {
+		return *_sponsoredMessages;
+	}
+	[[nodiscard]] Data::ScheduledMessages &scheduledMessages() const {
+		return *_scheduledMessages;
+	}
+	[[nodiscard]] Data::TopPeers &topPeers() const {
+		return *_topPeers;
+	}
+	[[nodiscard]] Data::TopPeers &topBotApps() const {
+		return *_topBotApps;
+	}
+	[[nodiscard]] Data::Factchecks &factchecks() const {
+		return *_factchecks;
+	}
+	[[nodiscard]] Data::LocationPickers &locationPickers() const {
+		return *_locationPickers;
+	}
+	[[nodiscard]] Data::Credits &credits() const {
+		return *_credits;
 	}
 	[[nodiscard]] Api::Updates &updates() const {
 		return *_updates;
@@ -133,6 +175,10 @@ public:
 	[[nodiscard]] InlineBots::AttachWebView &attachWebView() const {
 		return *_attachWebView;
 	}
+	[[nodiscard]] auto cachedReactionIconFactory() const
+	-> HistoryView::Reactions::CachedIconFactory & {
+		return *_cachedReactionIconFactory;
+	}
 
 	void saveSettings();
 	void saveSettingsDelayed(crl::time delay = kDefaultSaveDelay);
@@ -141,7 +187,8 @@ public:
 	void addWindow(not_null<Window::SessionController*> controller);
 	[[nodiscard]] auto windows() const
 		-> const base::flat_set<not_null<Window::SessionController*>> &;
-	[[nodiscard]] Window::SessionController *tryResolveWindow() const;
+	[[nodiscard]] Window::SessionController *tryResolveWindow(
+		PeerData *forPeer = nullptr) const;
 
 	// Shortcuts.
 	void notifyDownloaderTaskFinished();
@@ -187,9 +234,13 @@ public:
 	[[nodiscard]] Support::Helper &supportHelper() const;
 	[[nodiscard]] Support::Templates &supportTemplates() const;
 
+	[[nodiscard]] auto colorIndicesValue()
+		-> rpl::producer<Ui::ColorIndicesCompressed>;
+
 private:
 	static constexpr auto kDefaultSaveDelay = crl::time(1000);
 
+	const UserId _userId;
 	const not_null<Account*> _account;
 
 	const std::unique_ptr<SessionSettings> _settings;
@@ -203,7 +254,6 @@ private:
 
 	// _data depends on _downloader / _uploader.
 	const std::unique_ptr<Data::Session> _data;
-	const UserId _userId;
 	const not_null<UserData*> _user;
 
 	// _emojiStickersPack depends on _data.
@@ -212,6 +262,17 @@ private:
 	const std::unique_ptr<Stickers::GiftBoxPack> _giftBoxStickersPacks;
 	const std::unique_ptr<SendAsPeers> _sendAsPeers;
 	const std::unique_ptr<InlineBots::AttachWebView> _attachWebView;
+	const std::unique_ptr<Data::RecentPeers> _recentPeers;
+	const std::unique_ptr<Data::ScheduledMessages> _scheduledMessages;
+	const std::unique_ptr<Data::SponsoredMessages> _sponsoredMessages;
+	const std::unique_ptr<Data::TopPeers> _topPeers;
+	const std::unique_ptr<Data::TopPeers> _topBotApps;
+	const std::unique_ptr<Data::Factchecks> _factchecks;
+	const std::unique_ptr<Data::LocationPickers> _locationPickers;
+	const std::unique_ptr<Data::Credits> _credits;
+
+	using ReactionIconFactory = HistoryView::Reactions::CachedIconFactory;
+	const std::unique_ptr<ReactionIconFactory> _cachedReactionIconFactory;
 
 	const std::unique_ptr<Support::Helper> _supportHelper;
 

@@ -52,19 +52,156 @@ QString PrepareStoryFileName(
 		+ extension;
 }
 
+std::vector<std::vector<HistoryMessageMarkupButton>> ButtonRowsFromTL(
+		const MTPDreplyInlineMarkup &data) {
+	const auto &list = data.vrows().v;
+
+	if (list.isEmpty()) {
+		return {};
+	}
+	using Type = HistoryMessageMarkupButton::Type;
+	auto rows = std::vector<std::vector<HistoryMessageMarkupButton>>();
+	rows.reserve(list.size());
+
+	for (const auto &tlRow : list) {
+		auto row = std::vector<HistoryMessageMarkupButton>();
+		row.reserve(tlRow.data().vbuttons().v.size());
+		for (const auto &button : tlRow.data().vbuttons().v) {
+			button.match([&](const MTPDkeyboardButton &data) {
+				row.push_back({ Type::Default, qs(data.vtext()) });
+			}, [&](const MTPDkeyboardButtonCallback &data) {
+				row.push_back({
+					(data.is_requires_password()
+						? Type::CallbackWithPassword
+						: Type::Callback),
+					qs(data.vtext()),
+					qba(data.vdata())
+				});
+			}, [&](const MTPDkeyboardButtonRequestGeoLocation &data) {
+				row.push_back({ Type::RequestLocation, qs(data.vtext()) });
+			}, [&](const MTPDkeyboardButtonRequestPhone &data) {
+				row.push_back({ Type::RequestPhone, qs(data.vtext()) });
+			}, [&](const MTPDkeyboardButtonRequestPeer &data) {
+				row.push_back({
+					Type::RequestPeer,
+					qs(data.vtext()),
+					QByteArray("unsupported"),
+					QString(),
+					int64(data.vbutton_id().v),
+				});
+			}, [&](const MTPDkeyboardButtonUrl &data) {
+				row.push_back({
+					Type::Url,
+					qs(data.vtext()),
+					qba(data.vurl())
+				});
+			}, [&](const MTPDkeyboardButtonSwitchInline &data) {
+				const auto type = data.is_same_peer()
+					? Type::SwitchInlineSame
+					: Type::SwitchInline;
+				row.push_back({ type, qs(data.vtext()), qba(data.vquery()) });
+			}, [&](const MTPDkeyboardButtonGame &data) {
+				row.push_back({ Type::Game, qs(data.vtext()) });
+			}, [&](const MTPDkeyboardButtonBuy &data) {
+				row.push_back({ Type::Buy, qs(data.vtext()) });
+			}, [&](const MTPDkeyboardButtonUrlAuth &data) {
+				row.push_back({
+					Type::Auth,
+					qs(data.vtext()),
+					qba(data.vurl()),
+					qs(data.vfwd_text().value_or_empty()),
+					data.vbutton_id().v,
+				});
+			}, [&](const MTPDkeyboardButtonRequestPoll &data) {
+				const auto quiz = [&] {
+					if (!data.vquiz()) {
+						return QByteArray();
+					}
+					return data.vquiz()->match([&](const MTPDboolTrue&) {
+						return QByteArray(1, 1);
+					}, [&](const MTPDboolFalse&) {
+						return QByteArray(1, 0);
+					});
+				}();
+				row.push_back({
+					Type::RequestPoll,
+					qs(data.vtext()),
+					quiz
+				});
+			}, [&](const MTPDkeyboardButtonUserProfile &data) {
+				row.push_back({
+					Type::UserProfile,
+					qs(data.vtext()),
+					QByteArray::number(data.vuser_id().v)
+				});
+			}, [&](const MTPDinputKeyboardButtonUrlAuth &data) {
+			}, [&](const MTPDinputKeyboardButtonUserProfile &data) {
+			}, [&](const MTPDkeyboardButtonWebView &data) {
+				row.push_back({
+					Type::WebView,
+					qs(data.vtext()),
+					data.vurl().v
+				});
+			}, [&](const MTPDkeyboardButtonSimpleWebView &data) {
+				row.push_back({
+					Type::SimpleWebView,
+					qs(data.vtext()),
+					data.vurl().v
+				});
+			}, [&](const MTPDkeyboardButtonCopy &data) {
+				row.push_back({
+					Type::CopyText,
+					qs(data.vtext()),
+					data.vcopy_text().v,
+				});
+			}, [&](const MTPDinputKeyboardButtonRequestPeer &data) {
+			});
+		}
+		if (!row.empty()) {
+			rows.push_back(std::move(row));
+		}
+	}
+
+	return rows;
+}
+
 } // namespace
 
-int PeerColorIndex(BareId bareId) {
-	const auto index = bareId % 7;
-	const int map[] = { 0, 7, 4, 1, 6, 3, 5 };
-	return map[index];
+QByteArray HistoryMessageMarkupButton::TypeToString(
+		const HistoryMessageMarkupButton &button) {
+	using Type = HistoryMessageMarkupButton::Type;
+	switch (button.type) {
+	case Type::Default: return "default";
+	case Type::Url: return "url";
+	case Type::Callback: return "callback";
+	case Type::CallbackWithPassword: return "callback_with_password";
+	case Type::RequestPhone: return "request_phone";
+	case Type::RequestLocation: return "request_location";
+	case Type::RequestPoll: return "request_poll";
+	case Type::RequestPeer: return "request_peer";
+	case Type::SwitchInline: return "switch_inline";
+	case Type::SwitchInlineSame: return "switch_inline_same";
+	case Type::Game: return "game";
+	case Type::Buy: return "buy";
+	case Type::Auth: return "auth";
+	case Type::UserProfile: return "user_profile";
+	case Type::WebView: return "web_view";
+	case Type::SimpleWebView: return "simple_web_view";
+	case Type::CopyText: return "copy_text";
+	}
+	Unexpected("Type in HistoryMessageMarkupButton::Type.");
+}
+
+uint8 PeerColorIndex(BareId bareId) {
+	const uint8 map[] = { 0, 7, 4, 1, 6, 3, 5 };
+	return map[bareId % base::array_size(map)];
 }
 
 BareId PeerToBareId(PeerId peerId) {
 	return (peerId.value & PeerId::kChatTypeMask);
 }
 
-int PeerColorIndex(PeerId peerId) {
+uint8 PeerColorIndex(PeerId peerId) {
 	return PeerColorIndex(PeerToBareId(peerId));
 }
 
@@ -78,7 +215,7 @@ BareId StringBarePeerId(const Utf8String &data) {
 	return result;
 }
 
-int ApplicationColorIndex(int applicationId) {
+uint8 ApplicationColorIndex(int applicationId) {
 	static const auto official = std::map<int, int> {
 		{ 1, 0 }, // iOS
 		{ 7, 0 }, // iOS X
@@ -177,6 +314,8 @@ std::vector<TextPart> ParseText(
 			return NumberToString(data.vuser_id().v);
 		}, [](const MTPDmessageEntityCustomEmoji &data) {
 			return NumberToString(data.vdocument_id().v);
+		}, [](const MTPDmessageEntityBlockquote &data) {
+			return data.is_collapsed() ? Utf8String("1") : Utf8String();
 		}, [](const auto &) { return Utf8String(); });
 
 		result.push_back(std::move(part));
@@ -184,6 +323,84 @@ std::vector<TextPart> ParseText(
 	}
 	addTextPart(size);
 	return result;
+}
+
+Utf8String Reaction::TypeToString(const Reaction &reaction) {
+	switch (reaction.type) {
+		case Reaction::Type::Empty: return "empty";
+		case Reaction::Type::Emoji: return "emoji";
+		case Reaction::Type::CustomEmoji: return "custom_emoji";
+		case Reaction::Type::Paid: return "paid";
+	}
+	Unexpected("Type in Reaction::Type.");
+}
+
+Utf8String Reaction::Id(const Reaction &reaction) {
+	auto id = Utf8String();
+	switch (reaction.type) {
+	case Reaction::Type::Emoji:
+		id = reaction.emoji.toUtf8();
+		break;
+	case Reaction::Type::CustomEmoji:
+		id = reaction.documentId;
+		break;
+	}
+	return Reaction::TypeToString(reaction) + id;
+}
+
+Reaction ParseReaction(const MTPReaction& reaction) {
+	auto result = Reaction();
+	reaction.match([&](const MTPDreactionEmoji &data) {
+		result.type = Reaction::Type::Emoji;
+		result.emoji = qs(data.vemoticon());
+	}, [&](const MTPDreactionCustomEmoji &data) {
+		result.type = Reaction::Type::CustomEmoji;
+		result.documentId = NumberToString(data.vdocument_id().v);
+	}, [&](const MTPDreactionPaid &data) {
+		result.type = Reaction::Type::Paid;
+	}, [&](const MTPDreactionEmpty &data) {
+		result.type = Reaction::Type::Empty;
+	});
+	return result;
+}
+
+std::vector<Reaction> ParseReactions(const MTPMessageReactions &data) {
+	auto reactionsMap = std::map<QString, Reaction>();
+	auto reactionsOrder = std::vector<Utf8String>();
+	for (const auto &single : data.data().vresults().v) {
+		auto reaction = ParseReaction(single.data().vreaction());
+		reaction.count = single.data().vcount().v;
+		const auto id = Reaction::Id(reaction);
+		auto const &[_, inserted] = reactionsMap.try_emplace(
+			id,
+			std::move(reaction));
+		if (inserted) {
+			reactionsOrder.push_back(id);
+		}
+	}
+	if (data.data().vrecent_reactions().has_value()) {
+		if (const auto list = data.data().vrecent_reactions()) {
+			for (const auto &single : list->v) {
+				auto reaction = ParseReaction(single.data().vreaction());
+				const auto id = Reaction::Id(reaction);
+				auto const &[it, inserted] = reactionsMap.try_emplace(
+					id,
+					std::move(reaction));
+				if (inserted) {
+					reactionsOrder.push_back(id);
+				}
+				it->second.recent.push_back({
+					.peerId = ParsePeerId(single.data().vpeer_id()),
+					.date = single.data().vdate().v,
+				});
+			}
+		}
+	}
+	return ranges::views::all(
+		reactionsOrder
+	) | ranges::views::transform([&](const Utf8String &id) {
+		return reactionsMap.at(id);
+	}) | ranges::to_vector;
 }
 
 Utf8String FillLeft(const Utf8String &data, int length, char filler) {
@@ -534,18 +751,40 @@ Invoice ParseInvoice(const MTPDmessageMediaInvoice &data) {
 	return result;
 }
 
+PaidMedia ParsePaidMedia(
+		ParseMediaContext &context,
+		const MTPDmessageMediaPaidMedia &data,
+		const QString &folder,
+		TimeId date) {
+	auto result = PaidMedia();
+	result.stars = data.vstars_amount().v;
+	result.extended.reserve(data.vextended_media().v.size());
+	for (const auto &extended : data.vextended_media().v) {
+		result.extended.push_back(extended.match([](
+			const MTPDmessageExtendedMediaPreview &)
+		-> std::unique_ptr<Media> {
+			return std::unique_ptr<Media>();
+		}, [&](const MTPDmessageExtendedMedia &data)
+		-> std::unique_ptr<Media> {
+			return std::make_unique<Media>(
+				ParseMedia(context, data.vmedia(), folder, date));
+		}));
+	}
+	return result;
+}
+
 Poll ParsePoll(const MTPDmessageMediaPoll &data) {
 	auto result = Poll();
 	data.vpoll().match([&](const MTPDpoll &poll) {
 		result.id = poll.vid().v;
-		result.question = ParseString(poll.vquestion());
+		result.question = ParseString(poll.vquestion().data().vtext());
 		result.closed = poll.is_closed();
 		result.answers = ranges::views::all(
 			poll.vanswers().v
 		) | ranges::views::transform([](const MTPPollAnswer &answer) {
 			return answer.match([](const MTPDpollAnswer &answer) {
 				auto result = Poll::Answer();
-				result.text = ParseString(answer.vtext());
+				result.text = ParseString(answer.vtext().data().vtext());
 				result.option = answer.voption().v;
 				return result;
 			});
@@ -573,6 +812,53 @@ Poll ParsePoll(const MTPDmessageMediaPoll &data) {
 			}
 		}
 	});
+	return result;
+}
+
+GiveawayStart ParseGiveaway(const MTPDmessageMediaGiveaway &data) {
+	auto result = GiveawayStart{
+		.untilDate = data.vuntil_date().v,
+		.credits = data.vstars().value_or_empty(),
+		.quantity = data.vquantity().v,
+		.months = data.vmonths().value_or_empty(),
+		.all = !data.is_only_new_subscribers(),
+	};
+	for (const auto &id : data.vchannels().v) {
+		result.channels.push_back(ChannelId(id));
+	}
+	if (const auto countries = data.vcountries_iso2()) {
+		result.countries.reserve(countries->v.size());
+		for (const auto &country : countries->v) {
+			result.countries.push_back(qs(country));
+		}
+	}
+	if (const auto additional = data.vprize_description()) {
+		result.additionalPrize = qs(*additional);
+	}
+	return result;
+}
+
+GiveawayResults ParseGiveaway(const MTPDmessageMediaGiveawayResults &data) {
+	const auto additional = data.vadditional_peers_count();
+	auto result = GiveawayResults{
+		.channel = ChannelId(data.vchannel_id()),
+		.untilDate = data.vuntil_date().v,
+		.launchId = data.vlaunch_msg_id().v,
+		.additionalPeersCount = additional.value_or_empty(),
+		.winnersCount = data.vwinners_count().v,
+		.unclaimedCount = data.vunclaimed_count().v,
+		.months = data.vmonths().value_or_empty(),
+		.credits = data.vstars().value_or_empty(),
+		.refunded = data.is_refunded(),
+		.all = !data.is_only_new_subscribers(),
+	};
+	result.winners.reserve(data.vwinners().v.size());
+	for (const auto &id : data.vwinners().v) {
+		result.winners.push_back(UserId(id));
+	}
+	if (const auto additional = data.vprize_description()) {
+		result.additionalPrize = qs(*additional);
+	}
 	return result;
 }
 
@@ -634,6 +920,7 @@ StoriesSlice ParseStoriesSlice(
 				auto content = photo
 					? ParsePhoto(*photo, suggestedPath)
 					: Photo();
+				content.spoilered = data.is_spoiler();
 				media.content = content;
 			}, [&](const MTPDmessageMediaDocument &data) {
 				const auto document = data.vdocument();
@@ -662,6 +949,7 @@ StoriesSlice ParseStoriesSlice(
 						date,
 						extension);
 				content.thumb.file.suggestedPath = path + "_thumb.jpg";
+				content.spoilered = data.is_spoiler();
 				media.content = content;
 			}, [&](const auto &data) {
 				media.content = UnsupportedMedia();
@@ -755,6 +1043,10 @@ ContactInfo ParseContactInfo(const MTPUser &data) {
 	auto result = ContactInfo();
 	data.match([&](const MTPDuser &data) {
 		result.userId = data.vid().v;
+		const auto color = data.vcolor();
+		result.colorIndex = (color && color->data().vcolor())
+			? color->data().vcolor()->v
+			: PeerColorIndex(result.userId);
 		if (const auto firstName = data.vfirst_name()) {
 			result.firstName = ParseString(*firstName);
 		}
@@ -766,15 +1058,13 @@ ContactInfo ParseContactInfo(const MTPUser &data) {
 		}
 	}, [&](const MTPDuserEmpty &data) {
 		result.userId = data.vid().v;
+		result.colorIndex = PeerColorIndex(result.userId);
 	});
 	return result;
 }
 
-int ContactColorIndex(const ContactInfo &data) {
-	if (data.userId != 0) {
-		return PeerColorIndex(data.userId.bare);
-	}
-	return PeerColorIndex(StringBarePeerId(data.phoneNumber));
+uint8 ContactColorIndex(const ContactInfo &data) {
+	return data.colorIndex;
 }
 
 PeerId User::id() const {
@@ -786,6 +1076,10 @@ User ParseUser(const MTPUser &data) {
 	result.info = ParseContactInfo(data);
 	data.match([&](const MTPDuser &data) {
 		result.bareId = data.vid().v;
+		const auto color = data.vcolor();
+		result.colorIndex = (color && color->data().vcolor())
+			? color->data().vcolor()->v
+			: PeerColorIndex(result.bareId);
 		if (const auto username = data.vusername()) {
 			result.username = ParseString(*username);
 		}
@@ -794,6 +1088,10 @@ User ParseUser(const MTPUser &data) {
 		}
 		if (data.is_self()) {
 			result.isSelf = true;
+		} else if (data.vid().v == 1271266957) {
+			result.isReplies = true;
+		} else if (data.vid().v == 489000) {
+			result.isVerifyCodes = true;
 		}
 		result.input = MTP_inputUser(
 			data.vid(),
@@ -840,6 +1138,10 @@ Chat ParseChat(const MTPChat &data) {
 		result.input = MTP_inputPeerChat(MTP_long(result.bareId));
 	}, [&](const MTPDchannel &data) {
 		result.bareId = data.vid().v;
+		const auto color = data.vcolor();
+		result.colorIndex = (color && color->data().vcolor())
+			? color->data().vcolor()->v
+			: PeerColorIndex(result.bareId);
 		result.isBroadcast = data.is_broadcast();
 		result.isSupergroup = data.is_megagroup();
 		result.title = ParseString(data.vtitle());
@@ -921,6 +1223,15 @@ MTPInputPeer Peer::input() const {
 		return chat->input;
 	}
 	Unexpected("Variant in Peer::id.");
+}
+
+uint8 Peer::colorIndex() const {
+	if (const auto user = this->user()) {
+		return user->colorIndex;
+	} else if (const auto chat = this->chat()) {
+		return chat->colorIndex;
+	}
+	Unexpected("Variant in Peer::colorIndex.");
 }
 
 std::map<PeerId, Peer> ParsePeersLists(
@@ -1020,6 +1331,7 @@ Media ParseMedia(
 				+ "photos/"
 				+ PreparePhotoFileName(++context.photos, date))
 			: Photo();
+		content.spoilered = data.is_spoiler();
 		if (const auto ttl = data.vttl_seconds()) {
 			result.ttl = ttl->v;
 			content.image.file = File();
@@ -1040,6 +1352,7 @@ Media ParseMedia(
 			result.ttl = ttl->v;
 			content.file = File();
 		}
+		content.spoilered = data.is_spoiler();
 		result.content = content;
 	}, [&](const MTPDmessageMediaWebPage &data) {
 		// Ignore web pages.
@@ -1057,7 +1370,13 @@ Media ParseMedia(
 	}, [](const MTPDmessageMediaDice &data) {
 		// #TODO dice
 	}, [](const MTPDmessageMediaStory &data) {
-		// #TODO stories export
+		// #TODO export stories
+	}, [&](const MTPDmessageMediaGiveaway &data) {
+		result.content = ParseGiveaway(data);
+	}, [&](const MTPDmessageMediaGiveawayResults &data) {
+		result.content = ParseGiveaway(data);
+	}, [&](const MTPDmessageMediaPaidMedia &data) {
+		result.content = ParsePaidMedia(context, data, folder, date);
 	}, [](const MTPDmessageMediaEmpty &data) {});
 	return result;
 }
@@ -1152,6 +1471,8 @@ ServiceAction ParseServiceAction(
 				return Reason::Hangup;
 			}, [](const MTPDphoneCallDiscardReasonBusy &data) {
 				return Reason::Busy;
+			}, [](const MTPDphoneCallDiscardReasonAllowGroupCall &) {
+				return Reason::AllowGroupCall;
 			});
 		}
 		result.content = content;
@@ -1290,14 +1611,99 @@ ServiceAction ParseServiceAction(
 	}, [&](const MTPDmessageActionSetChatWallPaper &data) {
 		auto content = ActionSetChatWallPaper();
 		// #TODO wallpapers
+		content.same = data.is_same();
+		content.both = data.is_for_both();
 		result.content = content;
-	}, [&](const MTPDmessageActionSetSameChatWallPaper &data) {
-		result.content = ActionSetSameChatWallPaper();
 	}, [&](const MTPDmessageActionRequestedPeer &data) {
 		auto content = ActionRequestedPeer();
-		content.peerId = ParsePeerId(data.vpeer());
+		for (const auto &peer : data.vpeers().v) {
+			content.peers.push_back(ParsePeerId(peer));
+		}
 		content.buttonId = data.vbutton_id().v;
 		result.content = content;
+	}, [&](const MTPDmessageActionGiftCode &data) {
+		auto content = ActionGiftCode();
+		content.boostPeerId = data.vboost_peer()
+			? peerFromMTP(*data.vboost_peer())
+			: PeerId();
+		content.viaGiveaway = data.is_via_giveaway();
+		content.unclaimed = data.is_unclaimed();
+		content.months = data.vmonths().v;
+		content.code = data.vslug().v;
+		result.content = content;
+	}, [&](const MTPDmessageActionGiveawayLaunch &data) {
+		auto content = ActionGiveawayLaunch();
+		result.content = content;
+	}, [&](const MTPDmessageActionGiveawayResults &data) {
+		auto content = ActionGiveawayResults();
+		content.winners = data.vwinners_count().v;
+		content.unclaimed = data.vunclaimed_count().v;
+		content.credits = data.is_stars();
+		result.content = content;
+	}, [&](const MTPDmessageActionBoostApply &data) {
+		auto content = ActionBoostApply();
+		content.boosts = data.vboosts().v;
+		result.content = content;
+	}, [&](const MTPDmessageActionRequestedPeerSentMe &data) {
+		// Should not be in user inbox.
+	}, [&](const MTPDmessageActionPaymentRefunded &data) {
+		auto content = ActionPaymentRefunded();
+		content.currency = ParseString(data.vcurrency());
+		content.amount = data.vtotal_amount().v;
+		content.peerId = ParsePeerId(data.vpeer());
+		content.transactionId = data.vcharge().data().vid().v;
+		result.content = content;
+	}, [&](const MTPDmessageActionGiftStars &data) {
+		auto content = ActionGiftStars();
+		content.cost = Ui::FillAmountAndCurrency(
+			data.vamount().v,
+			qs(data.vcurrency())).toUtf8();
+		content.credits = data.vstars().v;
+		result.content = content;
+	}, [&](const MTPDmessageActionPrizeStars &data) {
+		result.content = ActionPrizeStars{
+			.peerId = ParsePeerId(data.vboost_peer()),
+			.amount = data.vstars().v,
+			.transactionId = data.vtransaction_id().v,
+			.giveawayMsgId = data.vgiveaway_msg_id().v,
+			.isUnclaimed = data.is_unclaimed(),
+		};
+	}, [&](const MTPDmessageActionStarGift &data) {
+		data.vgift().match([&](const MTPDstarGift &gift) {
+			result.content = ActionStarGift{
+				.giftId = uint64(gift.vid().v),
+				.stars = int64(gift.vstars().v),
+				.text = (data.vmessage()
+					? ParseText(
+						data.vmessage()->data().vtext(),
+						data.vmessage()->data().ventities().v)
+					: std::vector<TextPart>()),
+				.anonymous = data.is_name_hidden(),
+				.limited = gift.is_limited(),
+			};
+		}, [&](const MTPDstarGiftUnique &gift) {
+			result.content = ActionStarGift{
+				.giftId = uint64(gift.vid().v),
+				.text = (data.vmessage()
+					? ParseText(
+						data.vmessage()->data().vtext(),
+						data.vmessage()->data().ventities().v)
+					: std::vector<TextPart>()),
+				.anonymous = data.is_name_hidden(),
+			};
+		});
+	}, [&](const MTPDmessageActionStarGiftUnique &data) {
+		data.vgift().match([&](const MTPDstarGift &gift) {
+			result.content = ActionStarGift{
+				.giftId = uint64(gift.vid().v),
+				.stars = int64(gift.vstars().v),
+				.limited = gift.is_limited(),
+			};
+		}, [&](const MTPDstarGiftUnique &gift) {
+			result.content = ActionStarGift{
+				.giftId = uint64(gift.vid().v),
+			};
+		});
 	}, [](const MTPDmessageActionEmpty &data) {});
 	return result;
 }
@@ -1358,15 +1764,19 @@ Message ParseMessage(
 			}
 			if (const auto replyTo = data.vreply_to()) {
 				replyTo->match([&](const MTPDmessageReplyHeader &data) {
-					result.replyToMsgId = data.vreply_to_msg_id().v;
-					result.replyToPeerId = data.vreply_to_peer_id()
-						? ParsePeerId(*data.vreply_to_peer_id())
-						: 0;
-					if (result.replyToPeerId == result.peerId) {
-						result.replyToPeerId = 0;
+					if (const auto replyToMsg = data.vreply_to_msg_id()) {
+						result.replyToMsgId = replyToMsg->v;
+						result.replyToPeerId = data.vreply_to_peer_id()
+							? ParsePeerId(*data.vreply_to_peer_id())
+							: 0;
+						if (result.replyToPeerId == result.peerId) {
+							result.replyToPeerId = 0;
+						}
+					} else {
+						// #TODO export replies
 					}
 				}, [&](const MTPDmessageReplyStoryHeader &data) {
-					// #TODO stories export
+					// #TODO export stories
 				});
 			}
 		}
@@ -1410,12 +1820,16 @@ Message ParseMessage(
 		}
 		if (const auto replyTo = data.vreply_to()) {
 			replyTo->match([&](const MTPDmessageReplyHeader &data) {
-				result.replyToMsgId = data.vreply_to_msg_id().v;
-				result.replyToPeerId = data.vreply_to_peer_id()
-					? ParsePeerId(*data.vreply_to_peer_id())
-					: PeerId(0);
+				if (const auto replyToMsg = data.vreply_to_msg_id()) {
+					result.replyToMsgId = replyToMsg->v;
+					result.replyToPeerId = data.vreply_to_peer_id()
+						? ParsePeerId(*data.vreply_to_peer_id())
+						: PeerId(0);
+				} else {
+					// #TODO export replies
+				}
 			}, [&](const MTPDmessageReplyStoryHeader &data) {
-				// #TODO stories export
+				// #TODO export stories
 			});
 		}
 		if (const auto viaBotId = data.vvia_bot_id()) {
@@ -1439,9 +1853,20 @@ Message ParseMessage(
 			context.botId = 0;
 			result.media_group_id = data.vgrouped_id().value_or_empty();
 		}
+		if (const auto replyMarkup = data.vreply_markup()) {
+			replyMarkup->match([](const MTPDreplyKeyboardMarkup &) {
+			}, [&](const MTPDreplyInlineMarkup &data) {
+				result.inlineButtonRows = ButtonRowsFromTL(data);
+			}, [](const MTPDreplyKeyboardHide &) {
+			}, [](const MTPDreplyKeyboardForceReply &) {
+			});
+		}
 		result.text = ParseText(
 			data.vmessage(),
 			data.ventities().value_or_empty());
+			if (data.vreactions().has_value()) {
+				result.reactions = ParseReactions(*data.vreactions());
+			}
 	}, [&](const MTPDmessageService &data) {
 		result.action = ParseServiceAction(
 			context,
@@ -1508,6 +1933,8 @@ ContactsList ParseContactsList(const MTPVector<MTPSavedContact> &data) {
 			info.lastName = ParseString(data.vlast_name());
 			info.phoneNumber = ParseString(data.vphone());
 			info.date = data.vdate().v;
+			info.colorIndex = PeerColorIndex(
+				StringBarePeerId(info.phoneNumber));
 			return info;
 		});
 		result.list.push_back(std::move(info));
@@ -1687,6 +2114,8 @@ DialogInfo::Type DialogTypeFromUser(const User &user) {
 		? DialogInfo::Type::Self
 		: user.isReplies
 		? DialogInfo::Type::Replies
+		: user.isVerifyCodes
+		? DialogInfo::Type::VerifyCodes
 		: user.isBot
 		? DialogInfo::Type::Bot
 		: DialogInfo::Type::Personal;
@@ -1725,6 +2154,7 @@ DialogsInfo ParseDialogsInfo(const MTPmessages_Dialogs &data) {
 				info.lastName = peer.user()
 					? peer.user()->info.lastName
 					: Utf8String();
+				info.colorIndex = peer.colorIndex();
 				info.input = peer.input();
 				info.migratedToChannelId = peer.chat()
 					? peer.chat()->migratedToChannelId

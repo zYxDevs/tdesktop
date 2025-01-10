@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/random.h"
 #include "main/main_session.h"
 #include "main/main_account.h"
+#include "lang/lang_keys.h"
 #include "storage/storage_account.h"
 #include "history/history.h"
 #include "history/history_item.h"
@@ -29,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/controls/download_bar.h"
 #include "ui/text/format_song_document_name.h"
 #include "ui/layers/generic_box.h"
+#include "ui/ui_utility.h"
 #include "storage/serialize_common.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
@@ -122,6 +124,15 @@ DownloadManager::DownloadManager()
 
 DownloadManager::~DownloadManager() = default;
 
+bool DownloadManager::empty() const {
+	for (const auto &[session, data] : _sessions) {
+		if (!data.downloading.empty() || !data.downloaded.empty()) {
+			return false;
+		}
+	}
+	return true;
+}
+
 void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	auto &data = _sessions.emplace(session, SessionData()).first->second;
 	data.downloaded = deserialize(session);
@@ -142,7 +153,7 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	}, data.lifetime);
 
 	session->data().itemViewRefreshRequest(
-	) | rpl::start_with_next([=](not_null<HistoryItem*> item) {
+	) | rpl::start_with_next([=](not_null<const HistoryItem*> item) {
 		changed(item);
 	}, data.lifetime);
 
@@ -530,7 +541,7 @@ void DownloadManager::loadingStopWithConfirmation(
 		return;
 	}
 	const auto window = Core::App().windowFor(
-		&item->history()->session().account());
+		not_null(&item->history()->session().account()));
 	if (!window) {
 		return;
 	}
@@ -878,30 +889,20 @@ not_null<HistoryItem*> DownloadManager::generateItem(
 	const auto session = document
 		? &document->session()
 		: &photo->session();
-	const auto fromId = previousItem
-		? previousItem->from()->id
-		: session->userPeerId();
 	const auto history = previousItem
 		? previousItem->history()
 		: session->data().history(session->user());
-	const auto flags = MessageFlag::FakeHistoryItem;
-	const auto replyTo = FullReplyTo();
-	const auto viaBotId = UserId();
-	const auto date = base::unixtime::now();
-	const auto postAuthor = QString();
+	;
 	const auto caption = TextWithEntities();
 	const auto make = [&](const auto media) {
-		return history->makeMessage(
-			history->nextNonHistoryEntryId(),
-			flags,
-			replyTo,
-			viaBotId,
-			date,
-			fromId,
-			QString(),
-			media,
-			caption,
-			HistoryMessageMarkupData());
+		return history->makeMessage({
+			.id = history->nextNonHistoryEntryId(),
+			.flags = MessageFlag::FakeHistoryItem,
+			.from = (previousItem
+				? previousItem->from()->id
+				: session->userPeerId()),
+			.date = base::unixtime::now(),
+		}, media, caption);
 	};
 	const auto result = document ? make(document) : make(photo);
 	_generated.emplace(result);
@@ -1132,13 +1133,14 @@ rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
 				state->thumbnail = Images::Prepare(embed->original(), 0, {
 					.options = Images::Option::Blur,
 				});
+			} else if (!state->downloadTaskLifetime) {
+				state->document->session().downloaderTaskFinished(
+				) | rpl::filter([=] {
+					return self(self);
+				}) | rpl::start_with_next(
+					state->push,
+					state->downloadTaskLifetime);
 			}
-			state->document->session().downloaderTaskFinished(
-			) | rpl::filter([=] {
-				return self(self);
-			}) | rpl::start_with_next(
-				state->push,
-				state->downloadTaskLifetime);
 			return !state->thumbnail.isNull();
 		};
 		const auto resolveThumbnail = [=] {

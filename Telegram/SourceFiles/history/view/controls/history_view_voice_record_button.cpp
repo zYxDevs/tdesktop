@@ -13,6 +13,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat_helpers.h"
 #include "styles/style_layers.h"
 
+#include <QtMath>
+
 namespace HistoryView::Controls {
 
 namespace {
@@ -135,10 +137,14 @@ void VoiceRecordButton::init() {
 			const auto state = *currentState;
 			const auto icon = (state == Type::Send)
 				? st::historySendIcon
-				: st::historyRecordVoiceActive;
+				: (state == Type::Record)
+				? st::historyRecordVoiceActive
+				: st::historyRecordRoundActive;
 			const auto position = (state == Type::Send)
 				? st::historyRecordSendIconPosition
-				: QPoint(0, 0);
+				: (state == Type::Record)
+				? QPoint(0, 0)
+				: st::historyRecordRoundIconPosition;
 			icon.paint(
 				p,
 				-icon.width() / 2 + position.x(),
@@ -194,8 +200,8 @@ void VoiceRecordButton::init() {
 			}
 			update();
 		};
-		const auto duration = st::historyRecordVoiceDuration * 2;
-		_stateChangedAnimation.start(std::move(callback), 0., to, duration);
+		constexpr auto kDuration = st::universalDuration * 2;
+		_stateChangedAnimation.start(std::move(callback), 0., to, kDuration);
 	}, lifetime());
 }
 

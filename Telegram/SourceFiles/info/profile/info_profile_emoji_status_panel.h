@@ -46,11 +46,32 @@ public:
 		not_null<Window::SessionController*> controller,
 		not_null<QWidget*> button,
 		Data::CustomEmojiSizeTag animationSizeTag = {});
+	[[nodiscard]] bool hasFocus() const;
+
+	struct Descriptor {
+		not_null<Window::SessionController*> controller;
+		not_null<QWidget*> button;
+		Data::CustomEmojiSizeTag animationSizeTag = {};
+		DocumentId ensureAddedEmojiId = 0;
+		Fn<QColor()> customTextColor;
+		bool backgroundEmojiMode = false;
+		bool channelStatusMode = false;
+	};
+	void show(Descriptor &&descriptor);
+	void repaint();
+
+	struct CustomChosen {
+		DocumentId id = 0;
+		TimeId until = 0;
+	};
+	[[nodiscard]] rpl::producer<CustomChosen> someCustomChosen() const {
+		return _someCustomChosen.events();
+	}
 
 	bool paintBadgeFrame(not_null<Ui::RpWidget*> widget);
 
 private:
-	void create(not_null<Window::SessionController*> controller);
+	void create(const Descriptor &descriptor);
 	[[nodiscard]] bool filter(
 		not_null<Window::SessionController*> controller,
 		DocumentId chosenId) const;
@@ -62,10 +83,14 @@ private:
 		Ui::MessageSendingAnimationFrom from);
 
 	base::unique_qptr<ChatHelpers::TabbedPanel> _panel;
+	Fn<QColor()> _customTextColor;
 	Fn<bool(DocumentId)> _chooseFilter;
 	QPointer<QWidget> _panelButton;
 	std::unique_ptr<Ui::EmojiFlyAnimation> _animation;
+	rpl::event_stream<CustomChosen> _someCustomChosen;
 	Data::CustomEmojiSizeTag _animationSizeTag = {};
+	bool _backgroundEmojiMode = false;
+	bool _channelStatusMode = false;
 
 };
 

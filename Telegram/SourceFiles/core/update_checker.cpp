@@ -241,16 +241,18 @@ QString FindUpdateFile() {
 	}
 	const auto list = updates.entryInfoList(QDir::Files);
 	for (const auto &info : list) {
-		if (QRegularExpression(
+		static const auto RegExp = QRegularExpression(
 			"^("
 			"tupdate|"
 			"tx64upd|"
+			"tarm64upd|"
 			"tmacupd|"
 			"tarmacupd|"
 			"tlinuxupd|"
 			")\\d+(_[a-z\\d]+)?$",
 			QRegularExpression::CaseInsensitiveOption
-		).match(info.fileName()).hasMatch()) {
+		);
+		if (RegExp.match(info.fileName()).hasMatch()) {
 			return info.absoluteFilePath();
 		}
 	}
@@ -651,7 +653,7 @@ HttpChecker::HttpChecker(bool testing) : Checker(testing) {
 }
 
 void HttpChecker::start() {
-	const auto updaterVersion = Platform::AutoUpdateVersion();
+	//const auto updaterVersion = Platform::AutoUpdateVersion();
 	const auto path = Local::readAutoupdatePrefix() + qstr("/check");
 	auto url = QUrl(path);
 	DEBUG_LOG(("Update Info: requesting update state"));

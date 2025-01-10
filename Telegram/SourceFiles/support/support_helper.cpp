@@ -88,7 +88,7 @@ EditInfoBox::EditInfoBox(
 	_field->setInstantReplaces(Ui::InstantReplaces::Default());
 	_field->setInstantReplacesEnabled(
 		Core::App().settings().replaceEmojiValue());
-	_field->setMarkdownReplacesEnabled(rpl::single(true));
+	_field->setMarkdownReplacesEnabled(true);
 	_field->setEditLinkCallback(
 		DefaultEditLinkCallback(controller->uiShow(), _field));
 }
@@ -159,10 +159,9 @@ Data::Draft OccupiedDraft(const QString &normalizedName) {
 			+ QString::number(OccupationTag())
 			+ ";n:"
 			+ normalizedName },
-		MsgId(0), // replyTo
-		kTopicRootId,
+		FullReplyTo(),
 		MessageCursor(),
-		Data::PreviewState::Allowed
+		Data::WebPageDraft()
 	};
 }
 

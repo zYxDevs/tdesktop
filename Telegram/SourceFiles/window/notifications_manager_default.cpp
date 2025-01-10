@@ -496,22 +496,17 @@ Widget::Widget(
 	_a_opacity.start([this] { opacityAnimationCallback(); }, 0., 1., st::notifyFastAnim);
 }
 
-void Widget::destroyDelayed() {
-	hide();
-	if (_deleted) return;
-	_deleted = true;
-
-	// Ubuntu has a lag if a fully transparent widget is destroyed immediately.
-	base::call_delayed(1000, this, [this] {
-		manager()->removeWidget(this);
-	});
-}
-
 void Widget::opacityAnimationCallback() {
 	updateOpacity();
 	update();
 	if (!_a_opacity.animating() && _hiding) {
-		destroyDelayed();
+		if (underMouse()) {
+			// The notification is leaving from under the cursor, but in such case leave hook is not
+			// triggered automatically. But we still want the manager to start hiding notifications
+			// (see #28813).
+			manager()->startAllHiding();
+		}
+		manager()->removeWidget(this);  // Deletes `this`
 	}
 }
 
@@ -582,13 +577,12 @@ void Widget::addToHeight(int add) {
 	auto newHeight = height() + add;
 	auto newPosition = computePosition(newHeight);
 	updateGeometry(newPosition.x(), newPosition.y(), width(), newHeight);
-	Ui::Platform::UpdateOverlayed(this);
+	Ui::ForceFullRepaintSync(this);
 }
 
 void Widget::updateGeometry(int x, int y, int width, int height) {
-	setGeometry(x, y, width, height);
-	setMinimumSize(QSize(width, height));
-	setMaximumSize(QSize(width, height));
+	move(x, y);
+	setFixedSize(width, height);
 	update();
 }
 
@@ -716,8 +710,11 @@ void Notification::prepareActionsCache() {
 	auto replyRight = _replyPadding - st::notifyBorderWidth;
 	auto actionsCacheWidth = _reply->width() + replyRight + fadeWidth;
 	auto actionsCacheHeight = height() - actionsTop - st::notifyBorderWidth;
-	auto actionsCacheImg = QImage(QSize(actionsCacheWidth, actionsCacheHeight) * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
-	actionsCacheImg.setDevicePixelRatio(cRetinaFactor());
+	auto actionsCacheImg = QImage(
+		QSize(actionsCacheWidth, actionsCacheHeight)
+			* style::DevicePixelRatio(),
+		QImage::Format_ARGB32_Premultiplied);
+	actionsCacheImg.setDevicePixelRatio(style::DevicePixelRatio());
 	actionsCacheImg.fill(Qt::transparent);
 	{
 		Painter p(&actionsCacheImg);
@@ -842,7 +839,7 @@ void Notification::paintText(Painter &p) {
 		.spoiler = Ui::Text::DefaultSpoilerCache(),
 		.pausedEmoji = On(PowerSaving::kEmojiChat),
 		.pausedSpoiler = On(PowerSaving::kChatSpoiler),
-		.elisionLines = _textRect.height() / st::dialogsTextFont->height,
+		.elisionHeight = _textRect.height(),
 	});
 }
 
@@ -859,8 +856,10 @@ void Notification::updateNotifyDisplay() {
 	_hideReplyButton = options.hideReplyButton;
 
 	int32 w = width(), h = height();
-	QImage img(w * cIntRetinaFactor(), h * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
-	img.setDevicePixelRatio(cRetinaFactor());
+	auto img = QImage(
+		size() * style::DevicePixelRatio(),
+		QImage::Format_ARGB32_Premultiplied);
+	img.setDevicePixelRatio(style::DevicePixelRatio());
 	img.fill(st::notificationBg->c);
 
 	{
@@ -894,7 +893,8 @@ void Notification::updateNotifyDisplay() {
 		if (!options.hideNameAndPhoto) {
 			if (_fromScheduled) {
 				static const auto emoji = Ui::Emoji::Find(QString::fromUtf8("\xF0\x9F\x93\x85"));
-				const auto size = Ui::Emoji::GetSizeNormal() / cIntRetinaFactor();
+				const auto size = Ui::Emoji::GetSizeNormal()
+					/ style::DevicePixelRatio();
 				const auto top = rectForName.top() + (st::semiboldFont->height - size) / 2;
 				Ui::Emoji::Draw(p, emoji, Ui::Emoji::GetSizeNormal(), rectForName.left(), top);
 				rectForName.setLeft(rectForName.left() + size + st::semiboldFont->spacew);
@@ -922,7 +922,7 @@ void Notification::updateNotifyDisplay() {
 				2 * st::dialogsTextFont->height);
 			const auto text = !_reaction.empty()
 				? (!_author.isEmpty()
-					? Ui::Text::PlainLink(_author).append(' ')
+					? Ui::Text::Colorized(_author).append(' ')
 					: TextWithEntities()
 				).append(Manager::ComposeReactionNotification(
 					_item,
@@ -935,7 +935,7 @@ void Notification::updateNotifyDisplay() {
 					.spoilerLoginCode = options.spoilerLoginCode,
 				}).text
 				: ((!_author.isEmpty()
-						? Ui::Text::PlainLink(_author)
+						? Ui::Text::Colorized(_author)
 						: TextWithEntities()
 					).append(_forwardedCount > 1
 						? ('\n' + tr::lng_forward_messages(
@@ -944,7 +944,7 @@ void Notification::updateNotifyDisplay() {
 							_forwardedCount))
 						: QString()));
 			const auto options = TextParseOptions{
-				(TextParsePlainLinks
+				(TextParseColorized
 					| TextParseMarkdown
 					| (_forwardedCount > 1 ? TextParseMultiline : 0)),
 				0,
@@ -977,7 +977,7 @@ void Notification::updateNotifyDisplay() {
 		}
 
 		const auto topicWithChat = [&]() -> TextWithEntities {
-			const auto name = _history->peer->name();
+			const auto name = st::wrap_rtl(_history->peer->name());
 			return _topic
 				? _topic->titleWithIcon().append(u" ("_q + name + ')')
 				: TextWithEntities{ name };
@@ -1097,11 +1097,10 @@ void Notification::showReplyField() {
 	_replyArea->setFocus();
 	_replyArea->setMaxLength(MaxMessageSize);
 	_replyArea->setSubmitSettings(Ui::InputField::SubmitSettings::Both);
-	InitMessageFieldHandlers(
-		&_item->history()->session(),
-		nullptr,
-		_replyArea.data(),
-		nullptr);
+	InitMessageFieldHandlers({
+		.session = &_item->history()->session(),
+		.field = _replyArea.data(),
+	});
 
 	// Catch mouse press event to activate the window.
 	QCoreApplication::instance()->installEventFilter(this);
@@ -1237,8 +1236,6 @@ HideAllButton::HideAllButton(
 
 	auto position = computePosition(st::notifyHideAllHeight);
 	updateGeometry(position.x(), position.y(), st::notifyWidth, st::notifyHideAllHeight);
-	hide();
-	createWinId();
 
 	style::PaletteChanged(
 	) | rpl::start_with_next([=] {

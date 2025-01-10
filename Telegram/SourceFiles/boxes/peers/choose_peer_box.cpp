@@ -20,15 +20,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_icon.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h" // Session::api().
-#include "settings/settings_common.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
 #include "ui/wrap/vertical_layout.h"
+#include "ui/vertical_list.h"
 #include "window/window_session_controller.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat_helpers.h"
-#include "styles/style_settings.h"
+#include "styles/style_layers.h"
 
 namespace {
 
@@ -40,13 +40,16 @@ public:
 		not_null<Window::SessionNavigation*> navigation,
 		not_null<UserData*> bot,
 		RequestPeerQuery query,
-		Fn<void(not_null<PeerData*>)> callback);
+		Fn<void(std::vector<not_null<PeerData*>>)> callback);
 
 	Main::Session &session() const override;
 	void rowClicked(not_null<PeerListRow*> row) override;
 
-	bool respectSavedMessagesChat() const override {
-		return true;
+	[[nodiscard]] rpl::producer<int> selectedCountValue() const;
+	void submit();
+
+	QString savedMessagesChatStatus() const override {
+		return {};
 	}
 
 private:
@@ -60,7 +63,9 @@ private:
 	not_null<UserData*> _bot;
 	RequestPeerQuery _query;
 	base::flat_set<not_null<PeerData*>> _commonGroups;
-	Fn<void(not_null<PeerData*>)> _callback;
+	base::flat_set<not_null<PeerData*>> _selected;
+	rpl::variable<int> _selectedCount;
+	Fn<void(std::vector<not_null<PeerData*>>)> _callback;
 
 };
 
@@ -253,10 +258,10 @@ object_ptr<Ui::BoxContent> CreatePeerByQueryBox(
 		not_null<Window::SessionNavigation*> navigation,
 		not_null<UserData*> bot,
 		RequestPeerQuery query,
-		Fn<void(not_null<PeerData*>)> done) {
+		Fn<void(std::vector<not_null<PeerData*>>)> done) {
 	const auto weak = std::make_shared<QPointer<Ui::BoxContent>>();
 	auto callback = [=](not_null<PeerData*> peer) {
-		done(peer);
+		done({ peer });
 		if (const auto strong = weak->data()) {
 			strong->closeBox();
 		}
@@ -290,6 +295,8 @@ object_ptr<Ui::BoxContent> CreatePeerByQueryBox(
 	case Type::User: {
 		const auto user = peer->asUser();
 		return user
+			&& !user->isInaccessible()
+			&& !user->isNotificationsUser()
 			&& checkRestriction(query.userIsBot, user->isBot())
 			&& checkRestriction(query.userIsPremium, user->isPremium());
 	}
@@ -332,7 +339,7 @@ ChoosePeerBoxController::ChoosePeerBoxController(
 	not_null<Window::SessionNavigation*> navigation,
 	not_null<UserData*> bot,
 	RequestPeerQuery query,
-	Fn<void(not_null<PeerData*>)> callback)
+	Fn<void(std::vector<not_null<PeerData*>>)> callback)
 : ChatsListBoxController(&navigation->session())
 , _navigation(navigation)
 , _bot(bot)
@@ -352,11 +359,11 @@ void ChoosePeerBoxController::prepareRestrictions() {
 	const auto raw = above.data();
 	auto rows = RestrictionsList(_query);
 	if (!rows.empty()) {
-		Settings::AddSubsectionTitle(
+		Ui::AddSubsectionTitle(
 			raw,
 			tr::lng_request_peer_requirements(),
 			{ 0, st::membersMarginTop, 0, 0 });
-		const auto skip = st::settingsSubsectionTitlePadding.left();
+		const auto skip = st::defaultSubsectionTitlePadding.left();
 		auto separator = QString::fromUtf8("\n\xE2\x80\xA2 ");
 		raw->add(
 			object_ptr<Ui::FlatLabel>(
@@ -364,7 +371,7 @@ void ChoosePeerBoxController::prepareRestrictions() {
 				separator + rows.join(separator),
 				st::requestPeerRestriction),
 			{ skip, 0, skip, st::membersMarginTop });
-		Settings::AddDivider(raw);
+		Ui::AddDivider(raw);
 	}
 	const auto make = [&](tr::phrase<> text, const style::icon &st) {
 		auto button = raw->add(
@@ -415,6 +422,8 @@ void ChoosePeerBoxController::prepareViewHook() {
 		switch (_query.type) {
 		case Type::User: return (_query.userIsBot == Restriction::Yes)
 			? tr::lng_request_bot_title()
+			: (_query.maxQuantity > 1)
+			? tr::lng_request_users_title()
 			: tr::lng_request_user_title();
 		case Type::Group: return tr::lng_request_group_title();
 		case Type::Broadcast: return tr::lng_request_channel_title();
@@ -425,17 +434,40 @@ void ChoosePeerBoxController::prepareViewHook() {
 }
 
 void ChoosePeerBoxController::rowClicked(not_null<PeerListRow*> row) {
+	const auto limit = _query.maxQuantity;
+	const auto multiselect = (limit > 1);
 	const auto peer = row->peer();
+	if (multiselect) {
+		if (_selected.contains(peer) || _selected.size() < limit) {
+			delegate()->peerListSetRowChecked(row, !row->checked());
+			if (row->checked()) {
+				_selected.emplace(peer);
+			} else {
+				_selected.remove(peer);
+			}
+			_selectedCount = int(_selected.size());
+		}
+		return;
+	}
 	const auto done = [callback = _callback, peer] {
 		const auto onstack = callback;
-		onstack(peer);
+		onstack({ peer });
 	};
 	if (const auto user = peer->asUser()) {
 		done();
 	} else {
-		delegate()->peerListShowBox(
+		delegate()->peerListUiShow()->showBox(
 			MakeConfirmBox(_bot, peer, _query, done));
 	}
+}
+
+rpl::producer<int> ChoosePeerBoxController::selectedCountValue() const {
+	return _selectedCount.value();
+}
+
+void ChoosePeerBoxController::submit() {
+	const auto onstack = _callback;
+	onstack(ranges::to_vector(_selected));
 }
 
 auto ChoosePeerBoxController::createRow(not_null<History*> history)
@@ -474,7 +506,7 @@ void ShowChoosePeerBox(
 		not_null<Window::SessionNavigation*> navigation,
 		not_null<UserData*> bot,
 		RequestPeerQuery query,
-		Fn<void(not_null<PeerData*>)> chosen) {
+		Fn<void(std::vector<not_null<PeerData*>>)> chosen) {
 	const auto needCommonGroups = query.isBotParticipant
 		&& (query.type == RequestPeerQuery::Type::Group)
 		&& !query.myRights;
@@ -488,22 +520,39 @@ void ShowChoosePeerBox(
 		return;
 	}
 	const auto weak = std::make_shared<QPointer<Ui::BoxContent>>();
-	auto initBox = [=](not_null<PeerListBox*> box) {
-		box->addButton(tr::lng_cancel(), [box] {
-			box->closeBox();
-		});
-	};
-	auto callback = [=, done = std::move(chosen)](not_null<PeerData*> peer) {
-		done(peer);
+	auto callback = [=, done = std::move(chosen)](
+			std::vector<not_null<PeerData*>> peers) {
+		done(std::move(peers));
 		if (const auto strong = weak->data()) {
 			strong->closeBox();
 		}
 	};
+	const auto limit = query.maxQuantity;
+	auto controller = std::make_unique<ChoosePeerBoxController>(
+		navigation,
+		bot,
+		query,
+		std::move(callback));
+	auto initBox = [=, ptr = controller.get()](not_null<PeerListBox*> box) {
+		ptr->selectedCountValue() | rpl::start_with_next([=](int count) {
+			box->clearButtons();
+			if (limit > 1) {
+				box->setAdditionalTitle(rpl::single(u"%1 / %2"_q.arg(count).arg(limit)));
+			}
+			if (count > 0) {
+				box->addButton(tr::lng_intro_submit(), [=] {
+					ptr->submit();
+					if (*weak) {
+						(*weak)->closeBox();
+					}
+				});
+			}
+			box->addButton(tr::lng_cancel(), [box] {
+				box->closeBox();
+			});
+		}, box->lifetime());
+	};
 	*weak = navigation->parentController()->show(Box<PeerListBox>(
-		std::make_unique<ChoosePeerBoxController>(
-			navigation,
-			bot,
-			query,
-			std::move(callback)),
+		std::move(controller),
 		std::move(initBox)));
 }

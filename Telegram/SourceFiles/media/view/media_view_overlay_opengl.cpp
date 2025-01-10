@@ -298,7 +298,7 @@ void OverlayWidget::RendererGL::paint(
 }
 
 std::optional<QColor> OverlayWidget::RendererGL::clearColor() {
-	if (Platform::IsWindows() && _owner->_hideWorkaround) {
+	if (_owner->_hideWorkaround) {
 		return QColor(0, 0, 0, 0);
 	} else if (_owner->_fullScreenVideo) {
 		return st::mediaviewVideoBg->c;
@@ -308,16 +308,16 @@ std::optional<QColor> OverlayWidget::RendererGL::clearColor() {
 }
 
 bool OverlayWidget::RendererGL::handleHideWorkaround(QOpenGLFunctions &f) {
-	// This is needed on Windows,
+	// This is needed on Windows or Linux,
 	// because on reopen it blinks with the last shown content.
-	return Platform::IsWindows() && _owner->_hideWorkaround;
+	return _owner->_hideWorkaround != nullptr;
 }
 
 void OverlayWidget::RendererGL::paintBackground() {
 	_contentBuffer->bind();
 	if (const auto notch = _owner->topNotchSkip()) {
 		const auto top = transformRect(QRect(0, 0, _owner->width(), notch));
-        const GLfloat coords[] = {
+		const GLfloat coords[] = {
 			top.left(), top.top(),
 			top.right(), top.top(),
 			top.right(), top.bottom(),
@@ -544,6 +544,7 @@ void OverlayWidget::RendererGL::paintTransformedContent(
 		0.f, 0.f,
 	};
 
+	_contentBuffer->bind();
 	_contentBuffer->write(0, coords, sizeof(coords));
 
 	program->setUniformValue("viewport", _uniformViewport);
@@ -712,6 +713,7 @@ void OverlayWidget::RendererGL::paintControl(
 	};
 	_controlsProgram->bind();
 	_controlsProgram->setUniformValue("viewport", _uniformViewport);
+	_contentBuffer->bind();
 	if (!over.isEmpty() && overOpacity > 0) {
 		_contentBuffer->write(
 			offset * 4 * sizeof(GLfloat),
@@ -915,6 +917,7 @@ void OverlayWidget::RendererGL::paintRoundedCorners(int radius) {
 	const auto offset = kControlsOffset
 		+ (kControlsCount * kControlValues) / 4;
 	const auto byteOffset = offset * 4 * sizeof(GLfloat);
+	_contentBuffer->bind();
 	_contentBuffer->write(byteOffset, coords, sizeof(coords));
 	_roundedCornersProgram->bind();
 	_roundedCornersProgram->setUniformValue("viewport", _uniformViewport);
@@ -981,6 +984,7 @@ void OverlayWidget::RendererGL::paintStoriesSiblingPart(
 		+ (6 * 2 * 4) / 4 // rounding
 		+ (index * 4);
 	const auto byteOffset = offset * 4 * sizeof(GLfloat);
+	_contentBuffer->bind();
 	_contentBuffer->write(byteOffset, coords, sizeof(coords));
 
 	_controlsProgram->bind();
@@ -1059,6 +1063,7 @@ void OverlayWidget::RendererGL::paintUsingRaster(
 		geometry.left(), geometry.bottom(),
 		textured.texture.left(), textured.texture.top(),
 	};
+	_contentBuffer->bind();
 	_contentBuffer->write(
 		bufferOffset * 4 * sizeof(GLfloat),
 		coords,

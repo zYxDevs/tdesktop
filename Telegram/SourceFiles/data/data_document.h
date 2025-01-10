@@ -12,7 +12,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_types.h"
 #include "data/data_cloud_file.h"
 #include "core/file_location.h"
-#include "ui/image/image.h"
 
 enum class ChatRestriction;
 class mtpFileLoader;
@@ -21,6 +20,10 @@ namespace Images {
 class Source;
 } // namespace Images
 
+namespace Core {
+enum class NameType : uchar;
+} // namespace Core
+
 namespace Storage {
 namespace Cache {
 struct Key;
@@ -28,10 +31,12 @@ struct Key;
 } // namespace Storage
 
 namespace Media {
-namespace Streaming {
-class Loader;
-} // namespace Streaming
+struct VideoQuality;
 } // namespace Media
+
+namespace Media::Streaming {
+class Loader;
+} // namespace Media::Streaming
 
 namespace Data {
 class Session;
@@ -89,6 +94,11 @@ struct VoiceData : public DocumentAdditionalData {
 	char wavemax = 0;
 };
 
+struct VideoData : public DocumentAdditionalData {
+	QString codec;
+	std::vector<not_null<DocumentData*>> qualities;
+};
+
 using RoundData = VoiceData;
 
 namespace Serialize {
@@ -105,8 +115,16 @@ public:
 
 	void setattributes(
 		const QVector<MTPDocumentAttribute> &attributes);
+	void setVideoQualities(const QVector<MTPDocument> &list);
 
 	void automaticLoadSettingsChanged();
+	void setVideoQualities(std::vector<not_null<DocumentData*>> qualities);
+	[[nodiscard]] int resolveVideoQuality() const;
+	[[nodiscard]] auto resolveQualities(HistoryItem *context) const
+		-> const std::vector<not_null<DocumentData*>> &;
+	[[nodiscard]] not_null<DocumentData*> chooseQuality(
+		HistoryItem *context,
+		Media::VideoQuality request);
 
 	[[nodiscard]] bool loading() const;
 	[[nodiscard]] QString loadingFilePath() const;
@@ -158,6 +176,8 @@ public:
 	[[nodiscard]] const VoiceData *voice() const;
 	[[nodiscard]] RoundData *round();
 	[[nodiscard]] const RoundData *round() const;
+	[[nodiscard]] VideoData *video();
+	[[nodiscard]] const VideoData *video() const;
 
 	void forceIsStreamedAnimation();
 	[[nodiscard]] bool isVoiceMessage() const;
@@ -186,6 +206,7 @@ public:
 	[[nodiscard]] bool isPremiumSticker() const;
 	[[nodiscard]] bool isPremiumEmoji() const;
 	[[nodiscard]] bool emojiUsesTextColor() const;
+	void overrideEmojiUsesTextColor(bool value);
 
 	[[nodiscard]] bool hasThumbnail() const;
 	[[nodiscard]] bool thumbnailLoading() const;
@@ -256,6 +277,7 @@ public:
 	void collectLocalData(not_null<DocumentData*> local);
 
 	[[nodiscard]] QString filename() const;
+	[[nodiscard]] Core::NameType nameType() const;
 	[[nodiscard]] QString mimeString() const;
 	[[nodiscard]] bool hasMimeType(const QString &mime) const;
 	void setMimeString(const QString &mime);
@@ -341,6 +363,7 @@ private:
 	void setMaybeSupportsStreaming(bool supports);
 	void setLoadedInMediaCacheLocation();
 	void setFileName(const QString &remoteFileName);
+	bool enforceNameType(Core::NameType nameType);
 
 	void finishLoad();
 	void handleLoaderUpdates();
@@ -374,6 +397,7 @@ private:
 	std::unique_ptr<DocumentAdditionalData> _additional;
 	mutable Flags _flags = kStreamingSupportedUnknown;
 	GoodThumbnailState _goodThumbnailState = GoodThumbnailState();
+	Core::NameType _nameType = Core::NameType();
 	std::unique_ptr<FileLoader> _loader;
 
 };

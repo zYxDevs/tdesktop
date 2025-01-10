@@ -17,19 +17,29 @@ namespace Premium {
 
 constexpr auto kDeformationMax = 0.1;
 
-MiniStars::MiniStars(Fn<void(const QRect &r)> updateCallback, bool opaque)
-: _availableAngles({
+MiniStars::MiniStars(
+	Fn<void(const QRect &r)> updateCallback,
+	bool opaque,
+	Type type)
+: _availableAngles((type != Type::SlowStars)
+? std::vector<Interval>{
 	Interval{ -10, 40 },
 	Interval{ 180 + 10 - 40, 40 },
 	Interval{ 180 + 15, 50 },
 	Interval{ -15 - 50, 50 },
-})
-, _lifeLength({ 150 / 5, 200 / 5 })
-, _deathTime({ 1500, 2000 })
+}
+: std::vector<Interval>{ Interval{ -90, 180 }, Interval{ 90, 180 } })
+, _lifeLength((type != Type::SlowStars)
+	? Interval{ 150 / 5, 200 / 5 }
+	: Interval{ 150 * 2, 200 * 2 })
+, _deathTime((type != Type::SlowStars)
+	? Interval{ 1500, 2000 }
+	: Interval{ 1500 * 2, 2000 * 2 })
 , _size({ 5, 10 })
 , _alpha({ opaque ? 100 : 40, opaque ? 100 : 60 })
 , _sinFactor({ 10, 190 })
-, _appearProgressTill(0.2)
+, _spritesCount({ 0, ((type == Type::MonoStars) ? 1 : 2) })
+, _appearProgressTill((type != Type::SlowStars) ? 0.2 : 0.01)
 , _disappearProgressAfter(0.8)
 , _distanceProgressStart(0.5)
 , _sprite(u":/gui/icons/settings/starmini.svg"_q)
@@ -41,6 +51,10 @@ MiniStars::MiniStars(Fn<void(const QRect &r)> updateCallback, bool opaque)
 		updateCallback(base::take(_rectToUpdate));
 	}
 }) {
+	if (type == Type::BiStars) {
+		_secondSprite = std::make_unique<QSvgRenderer>(
+			u":/gui/icons/settings/star.svg"_q);
+	}
 	if (anim::Disabled()) {
 		const auto from = _deathTime.from + _deathTime.length;
 		auto r = bytes::vector(from + 1);
@@ -117,7 +131,7 @@ void MiniStars::paint(QPainter &p, const QRectF &rect) {
 				- starHeight / 2.,
 			starWidth,
 			starHeight);
-		_sprite.render(&p, renderRect);
+		ministar.sprite->render(&p, renderRect);
 		_rectToUpdate |= renderRect.toRect();
 	}
 	p.setOpacity(opacity);
@@ -128,7 +142,7 @@ void MiniStars::setPaused(bool paused) {
 }
 
 void MiniStars::createStar(crl::time now) {
-	constexpr auto kRandomSize = 8;
+	constexpr auto kRandomSize = 9;
 	auto random = bytes::vector(kRandomSize);
 	base::RandomFill(random.data(), random.size());
 
@@ -148,6 +162,9 @@ void MiniStars::createStar(crl::time now) {
 		.alpha = float64(randomInterval(_alpha, next())) / 100.,
 		.sinFactor = randomInterval(_sinFactor, next()) / 100.
 			* ((uchar(next()) % 2) == 1 ? 1. : -1.),
+		.sprite = ((randomInterval(_spritesCount, next()) && _secondSprite)
+			? _secondSprite.get()
+			: &_sprite),
 	};
 	for (auto i = 0; i < _ministars.size(); i++) {
 		if (ministar.birthTime > _ministars[i].deathTime) {

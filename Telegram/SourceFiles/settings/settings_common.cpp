@@ -7,44 +7,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/settings_common.h"
 
-#include "apiwrap.h"
-#include "api/api_cloud_password.h"
-#include "settings/cloud_password/settings_cloud_password_email_confirm.h"
-#include "settings/settings_chat.h"
-#include "settings/settings_advanced.h"
-#include "settings/settings_information.h"
-#include "settings/settings_main.h"
-#include "settings/settings_notifications.h"
-#include "settings/settings_privacy_security.h"
-#include "settings/settings_folders.h"
-#include "settings/settings_calls.h"
-#include "settings/settings_enhanced.h"
-#include "settings/settings_experimental.h"
-#include "core/application.h"
-#include "core/core_cloud_password.h"
-#include "ui/wrap/padding_wrap.h"
-#include "ui/wrap/vertical_layout.h"
-#include "ui/widgets/labels.h"
-#include "ui/widgets/box_content_divider.h"
+#include "lottie/lottie_icon.h"
+#include "ui/painter.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/continuous_sliders.h"
-#include "ui/widgets/menu/menu_add_action_callback.h"
-#include "ui/painter.h"
-#include "boxes/abstract_box.h"
-#include "boxes/sessions_box.h"
-#include "window/themes/window_theme_editor_box.h"
-#include "window/window_session_controller.h"
-#include "window/window_controller.h"
-#include "lang/lang_keys.h"
-#include "mainwindow.h"
-#include "main/main_session.h"
-#include "main/main_domain.h"
-#include "lottie/lottie_icon.h"
-#include "base/options.h"
-#include "core/application.h"
-#include "styles/style_layers.h"
+#include "ui/widgets/labels.h"
+#include "ui/wrap/vertical_layout.h"
 #include "styles/style_settings.h"
-#include "styles/style_menu_icons.h"
 
 #include <QAction>
 
@@ -101,32 +70,6 @@ QSize Icon::size() const {
 	return _icon->size();
 }
 
-void AddSkip(not_null<Ui::VerticalLayout*> container) {
-	AddSkip(container, st::settingsSectionSkip);
-}
-
-void AddSkip(not_null<Ui::VerticalLayout*> container, int skip) {
-	container->add(object_ptr<Ui::FixedHeightWidget>(
-		container,
-		skip));
-}
-
-void AddDivider(not_null<Ui::VerticalLayout*> container) {
-	container->add(object_ptr<Ui::BoxContentDivider>(container));
-}
-
-void AddDividerText(
-		not_null<Ui::VerticalLayout*> container,
-		rpl::producer<QString> text) {
-	container->add(object_ptr<Ui::DividerLabel>(
-		container,
-		object_ptr<Ui::FlatLabel>(
-			container,
-			std::move(text),
-			st::boxDividerLabel),
-		st::settingsDividerLabelPadding));
-}
-
 void AddButtonIcon(
 		not_null<Ui::AbstractButton*> button,
 		const style::SettingsButton &st,
@@ -146,6 +89,7 @@ void AddButtonIcon(
 		std::move(descriptor));
 	icon->widget.setAttribute(Qt::WA_TransparentForMouseEvents);
 	icon->widget.resize(icon->icon.size());
+	icon->widget.show();
 	button->sizeValue(
 	) | rpl::start_with_next([=, left = st.iconLeft](QSize size) {
 		icon->widget.moveToLeft(
@@ -160,7 +104,7 @@ void AddButtonIcon(
 	}, icon->widget.lifetime());
 }
 
-object_ptr<Button> CreateButton(
+object_ptr<Button> CreateButtonWithIcon(
 		not_null<QWidget*> parent,
 		rpl::producer<QString> text,
 		const style::SettingsButton &st,
@@ -173,13 +117,13 @@ object_ptr<Button> CreateButton(
 	return result;
 }
 
-not_null<Button*> AddButton(
+not_null<Button*> AddButtonWithIcon(
 		not_null<Ui::VerticalLayout*> container,
 		rpl::producer<QString> text,
 		const style::SettingsButton &st,
 		IconDescriptor &&descriptor) {
 	return container->add(
-		CreateButton(container, std::move(text), st, std::move(descriptor)));
+		CreateButtonWithIcon(container, std::move(text), st, std::move(descriptor)));
 }
 
 void CreateRightLabel(
@@ -217,7 +161,7 @@ not_null<Button*> AddButtonWithLabel(
 		rpl::producer<QString> label,
 		const style::SettingsButton &st,
 		IconDescriptor &&descriptor) {
-	const auto button = AddButton(
+	const auto button = AddButtonWithIcon(
 		container,
 		rpl::duplicate(text),
 		st,
@@ -226,53 +170,47 @@ not_null<Button*> AddButtonWithLabel(
 	return button;
 }
 
-not_null<Ui::FlatLabel*> AddSubsectionTitle(
-		not_null<Ui::VerticalLayout*> container,
-		rpl::producer<QString> text,
-		style::margins addPadding,
-		const style::FlatLabel *st) {
-	return container->add(
-		object_ptr<Ui::FlatLabel>(
-			container,
-			std::move(text),
-			st ? *st : st::settingsSubsectionTitle),
-		st::settingsSubsectionTitlePadding + addPadding);
-}
-
 void AddDividerTextWithLottie(
-		not_null<Ui::VerticalLayout*> parent,
-		rpl::producer<> showFinished,
-		rpl::producer<TextWithEntities> text,
-		const QString &lottie) {
-	const auto divider = Ui::CreateChild<Ui::BoxContentDivider>(parent.get());
-	const auto verticalLayout = parent->add(
-		object_ptr<Ui::VerticalLayout>(parent.get()));
-
+		not_null<Ui::VerticalLayout*> container,
+		DividerWithLottieDescriptor &&descriptor) {
+	const auto divider = Ui::CreateChild<Ui::BoxContentDivider>(
+		container.get(),
+		0,
+		st::boxDividerBg,
+		descriptor.parts);
+	const auto verticalLayout = container->add(
+		object_ptr<Ui::VerticalLayout>(container.get()));
+	const auto size = descriptor.lottieSize.value_or(
+		st::settingsFilterIconSize);
 	auto icon = CreateLottieIcon(
 		verticalLayout,
 		{
-			.name = lottie,
-			.sizeOverride = {
-				st::settingsFilterIconSize,
-				st::settingsFilterIconSize,
-			},
+			.name = descriptor.lottie,
+			.sizeOverride = { size, size },
 		},
-		st::settingsFilterIconPadding);
-	std::move(
-		showFinished
-	) | rpl::start_with_next([animate = std::move(icon.animate)] {
-		animate(anim::repeat::once);
-	}, verticalLayout->lifetime());
+		descriptor.lottieMargins.value_or(st::settingsFilterIconPadding));
+	if (descriptor.showFinished) {
+		const auto repeat = descriptor.lottieRepeat.value_or(
+			anim::repeat::once);
+		std::move(
+			descriptor.showFinished
+		) | rpl::start_with_next([animate = std::move(icon.animate), repeat] {
+			animate(repeat);
+		}, verticalLayout->lifetime());
+	}
 	verticalLayout->add(std::move(icon.widget));
 
-	verticalLayout->add(
-		object_ptr<Ui::CenterWrap<>>(
-			verticalLayout,
-			object_ptr<Ui::FlatLabel>(
+	if (descriptor.about) {
+		verticalLayout->add(
+			object_ptr<Ui::CenterWrap<>>(
 				verticalLayout,
-				std::move(text),
-				st::settingsFilterDividerLabel)),
-		st::settingsFilterDividerLabelPadding);
+				object_ptr<Ui::FlatLabel>(
+					verticalLayout,
+					std::move(descriptor.about),
+					st::settingsFilterDividerLabel)),
+			descriptor.aboutMargins.value_or(
+				st::settingsFilterDividerLabelPadding));
+	}
 
 	verticalLayout->geometryValue(
 	) | rpl::start_with_next([=](const QRect &r) {
@@ -323,63 +261,22 @@ LottieIcon CreateLottieIcon(
 	return { .widget = std::move(object), .animate = std::move(animate) };
 }
 
-void FillMenu(
-		not_null<Window::SessionController*> controller,
-		Type type,
-		Fn<void(Type)> showOther,
-		Ui::Menu::MenuCallback addAction) {
-	const auto window = &controller->window();
-	if (type == Chat::Id()) {
-		addAction(
-			tr::lng_settings_bg_theme_create(tr::now),
-			[=] { window->show(Box(Window::Theme::CreateBox, window)); },
-			&st::menuIconChangeColors);
-	} else if (type == CloudPasswordEmailConfirmId()) {
-		const auto api = &controller->session().api();
-		if (const auto state = api->cloudPassword().stateCurrent()) {
-			if (state->unconfirmedPattern.isEmpty()) {
-				return;
-			}
-		}
-		addAction(
-			tr::lng_settings_password_abort(tr::now),
-			[=] { api->cloudPassword().clearUnconfirmedPassword(); },
-			&st::menuIconCancel);
-	} else {
-		const auto &list = Core::App().domain().accounts();
-		if (list.size() < Core::App().domain().maxAccounts()) {
-			addAction(tr::lng_menu_add_account(tr::now), [=] {
-				Core::App().domain().addActivated(MTP::Environment{});
-			}, &st::menuIconAddAccount);
-		}
-		if (!controller->session().supportMode()) {
-			addAction(
-				tr::lng_settings_information(tr::now),
-				[=] { showOther(Information::Id()); },
-				&st::menuIconInfo);
-		}
-		addAction({
-			.text = tr::lng_settings_logout(tr::now),
-			.handler = [=] { window->showLogoutConfirmation(); },
-			.icon = &st::menuIconLeaveAttention,
-			.isAttention = true,
-		});
-	}
-}
-
 SliderWithLabel MakeSliderWithLabel(
 		QWidget *parent,
 		const style::MediaSlider &sliderSt,
 		const style::FlatLabel &labelSt,
 		int skip,
-		int minLabelWidth) {
+		int minLabelWidth,
+		bool ignoreWheel) {
 	auto result = object_ptr<Ui::RpWidget>(parent);
 	const auto raw = result.data();
 	const auto height = std::max(
 		sliderSt.seekSize.height(),
 		labelSt.style.font->height);
 	raw->resize(sliderSt.seekSize.width(), height);
-	const auto slider = Ui::CreateChild<Ui::MediaSlider>(raw, sliderSt);
+	const auto slider = ignoreWheel
+		? Ui::CreateChild<Ui::MediaSliderWheelless>(raw, sliderSt)
+		: Ui::CreateChild<Ui::MediaSlider>(raw, sliderSt);
 	const auto label = Ui::CreateChild<Ui::FlatLabel>(raw, labelSt);
 	slider->resize(slider->width(), sliderSt.seekSize.height());
 	rpl::combine(

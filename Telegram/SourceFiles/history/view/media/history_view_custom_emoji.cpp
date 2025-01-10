@@ -108,6 +108,9 @@ CustomEmoji::CustomEmoji(
 }
 
 void CustomEmoji::customEmojiResolveDone(not_null<DocumentData*> document) {
+	if (!document->sticker()) {
+		return;
+	}
 	_resolving = false;
 	const auto id = document->id;
 	for (auto &line : _lines) {
@@ -128,7 +131,9 @@ std::unique_ptr<Sticker> CustomEmoji::createStickerPart(
 		_parent,
 		document,
 		skipPremiumEffect);
-	result->setCustomEmojiPart(_singleSize, _cachingTag);
+	result->initSize(_singleSize);
+	result->setCustomCachingTag(_cachingTag);
+	result->setCustomEmojiPart();
 	return result;
 }
 

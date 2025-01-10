@@ -31,6 +31,8 @@ public:
 	enum class EmojiListType {
 		Profile,
 		Group,
+		Background,
+		NoChannelStatus,
 	};
 
 	struct UserPhoto {
@@ -73,6 +75,10 @@ private:
 		Suggestion,
 		Fallback,
 	};
+	struct EmojiListData {
+		rpl::variable<EmojiList> list;
+		mtpRequestId requestId = 0;
+	};
 
 	void ready(
 		const FullMsgId &msgId,
@@ -83,6 +89,9 @@ private:
 		UserPhoto &&photo,
 		UploadType type,
 		Fn<void()> done);
+
+	[[nodiscard]] EmojiListData &emojiList(EmojiListType type);
+	[[nodiscard]] const EmojiListData &emojiList(EmojiListType type) const;
 
 	const not_null<Main::Session*> _session;
 	MTP::Sender _api;
@@ -101,9 +110,10 @@ private:
 		not_null<UserData*>,
 		not_null<PhotoData*>> _nonPersonalPhotos;
 
-	mtpRequestId _requestIdEmojiList = 0;
-	rpl::variable<EmojiList> _profileEmojiList;
-	rpl::variable<EmojiList> _groupEmojiList;
+	EmojiListData _profileEmojiList;
+	EmojiListData _groupEmojiList;
+	EmojiListData _backgroundEmojiList;
+	EmojiListData _noChannelStatusEmojiList;
 
 };
 

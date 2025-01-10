@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/animations.h"
 #include "base/timer.h"
 #include "base/object_ptr.h"
+#include "data/data_report.h"
 #include "dialogs/dialogs_key.h"
 
 namespace Main {
@@ -27,7 +28,6 @@ class UnreadBadge;
 class InputField;
 class CrossButton;
 class InfiniteRadialAnimation;
-enum class ReportReason;
 template <typename Widget>
 class FadeWrapScaled;
 } // namespace Ui
@@ -75,10 +75,11 @@ public:
 		SendActionPainter *sendAction);
 	void setCustomTitle(const QString &title);
 
+	void showChooseMessagesForReport(Data::ReportInput reportInput);
+	
 	rpl::producer<> oldForwardSelectionRequest() const {
 		return _oldForwardSelection.events();
 	}
-	void showChooseMessagesForReport(Ui::ReportReason reason);
 	void clearChooseMessagesForReport();
 
 	bool toggleSearch(bool shown, anim::type animated);
@@ -91,8 +92,9 @@ public:
 	[[nodiscard]] rpl::producer<> searchSubmitted() const;
 	[[nodiscard]] rpl::producer<QString> searchQuery() const;
 	[[nodiscard]] QString searchQueryCurrent() const;
+	[[nodiscard]] int searchQueryCursorPosition() const;
 	void searchClear();
-	void searchSetText(const QString &query);
+	void searchSetText(const QString &query, int cursorPosition = -1);
 
 	[[nodiscard]] rpl::producer<> forwardSelectionRequest() const {
 		return _forwardSelection.events();
@@ -139,6 +141,7 @@ protected:
 private:
 	struct EmojiInteractionSeenAnimation;
 
+	[[nodiscard]] bool rootChatsListBar() const;
 	void refreshInfoButton();
 	void refreshLang();
 	void updateSearchVisibility();
@@ -190,7 +193,7 @@ private:
 
 	void refreshUnreadBadge();
 	void updateUnreadBadge();
-	void setChooseForReportReason(std::optional<Ui::ReportReason> reason);
+	void setChooseForReportReason(std::optional<Data::ReportInput>);
 	void toggleSelectedControls(bool shown);
 	[[nodiscard]] bool showSelectedActions() const;
 
@@ -256,7 +259,7 @@ private:
 	std::unique_ptr<Ui::InfiniteRadialAnimation> _connecting;
 
 	SendActionPainter *_sendAction = nullptr;
-	std::optional<Ui::ReportReason> _chooseForReportReason;
+	std::optional<Data::ReportInput> _chooseForReportReason;
 
 	base::Timer _onlineUpdater;
 
@@ -275,7 +278,8 @@ private:
 		int requestTime;
 		int memberCount;
 	};
-    QMap<QString, reqData> lastChatRequest;
+	QMap<QString, reqData> lastChatRequest;
+	mutable QMutex reqMutex;
 };
 
 } // namespace HistoryView

@@ -81,6 +81,13 @@ const auto CommandByName = base::flat_map<QString, Command>{
 	{ u"next_folder"_q       , Command::FolderNext },
 	{ u"all_chats"_q         , Command::ShowAllChats },
 
+	{ u"account1"_q          , Command::ShowAccount1 },
+	{ u"account2"_q          , Command::ShowAccount2 },
+	{ u"account3"_q          , Command::ShowAccount3 },
+	{ u"account4"_q          , Command::ShowAccount4 },
+	{ u"account5"_q          , Command::ShowAccount5 },
+	{ u"account6"_q          , Command::ShowAccount6 },
+
 	{ u"folder1"_q           , Command::ShowFolder1 },
 	{ u"folder2"_q           , Command::ShowFolder2 },
 	{ u"folder3"_q           , Command::ShowFolder3 },
@@ -95,9 +102,12 @@ const auto CommandByName = base::flat_map<QString, Command>{
 	{ u"read_chat"_q         , Command::ReadChat },
 
 	// Shortcuts that have no default values.
-	{ u"message"_q           , Command::JustSendMessage },
-	{ u"message_silently"_q  , Command::SendSilentMessage },
-	{ u"message_scheduled"_q , Command::ScheduleMessage },
+	{ u"message"_q                       , Command::JustSendMessage },
+	{ u"message_silently"_q              , Command::SendSilentMessage },
+	{ u"message_scheduled"_q             , Command::ScheduleMessage },
+	{ u"media_viewer_video_fullscreen"_q , Command::MediaViewerFullscreen },
+	{ u"show_scheduled"_q                , Command::ShowScheduled },
+	{ u"archive_chat"_q                  , Command::ArchiveChat },
 	//
 	{ u"fast_forward"_q      , Command::FastForward },
 	{ u"fast_copy"_q         , Command::FastCopy },
@@ -144,6 +154,15 @@ const auto CommandNames = base::flat_map<Command, QString>{
 
 	{ Command::FastForward    , u"fast_forward"_q },
 	{ Command::FastCopy       , u"fast_copy"_q },
+};
+
+[[maybe_unused]] constexpr auto kNoValue = {
+	Command::JustSendMessage,
+	Command::SendSilentMessage,
+	Command::ScheduleMessage,
+	Command::MediaViewerFullscreen,
+	Command::ShowScheduled,
+	Command::ArchiveChat,
 };
 
 class Manager {
@@ -218,8 +237,24 @@ void WriteDefaultCustomFile() {
 	const auto path = CustomFilePath();
 	auto input = QFile(":/misc/default_shortcuts-custom.json");
 	auto output = QFile(path);
-	if (input.open(QIODevice::ReadOnly) && output.open(QIODevice::WriteOnly)) {
+	if (input.open(QIODevice::ReadOnly)
+		&& output.open(QIODevice::WriteOnly)) {
+#ifdef Q_OS_MAC
+		auto text = qs(input.readAll());
+		const auto note = R"(
+// Note:
+// On Apple platforms, reference to "ctrl" corresponds to the Command keys )"
+			+ QByteArray()
+			+ R"(on the Macintosh keyboard.
+// On Apple platforms, reference to "meta" corresponds to the Control keys.
+
+[
+)";
+		text.replace(u"\n\n["_q, QString(note));
+		output.write(text.toUtf8());
+#else
 		output.write(input.readAll());
+#endif // !Q_OS_MAC
 	}
 }
 
@@ -395,7 +430,7 @@ void Manager::fillDefaults() {
 		kShowFolder,
 		ranges::views::ints(1, ranges::unreachable));
 
-	for (const auto [command, index] : folders) {
+	for (const auto &[command, index] : folders) {
 		set(u"%1+%2"_q.arg(ctrl).arg(index), command);
 	}
 
@@ -444,6 +479,19 @@ void Manager::writeDefaultFile() {
 			}
 		}
 	}
+
+	// Commands without a default value.
+	for (const auto c : ranges::views::concat(kShowAccount, kNoValue)) {
+		for (const auto &[name, command] : CommandByName) {
+			if (c == command) {
+				auto entry = QJsonObject();
+				entry.insert(u"keys"_q, QJsonValue());
+				entry.insert(u"command"_q, name);
+				shortcuts.append(entry);
+			}
+		}
+	}
+
 
 	auto document = QJsonDocument();
 	document.setArray(shortcuts);

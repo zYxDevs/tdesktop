@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/details/storage_file_utilities.h"
 #include "storage/cache/storage_cache_database.h"
 #include "storage/serialize_common.h"
+#include "storage/storage_media_prepare.h"
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "mtproto/mtproto_config.h"
@@ -399,7 +400,7 @@ bool ReadSetting(
 		stream >> v;
 		if (!CheckStreamStatus(stream)) return false;
 
-		Core::App().settings().setDialogsWidthRatio(v / 1000000.);
+		Core::App().settings().updateDialogsWidthRatio(v / 1000000., false);
 		context.legacyRead = true;
 	} break;
 
@@ -552,7 +553,7 @@ bool ReadSetting(
 				const auto proxy = readProxy();
 				if (proxy) {
 					list.push_back(proxy);
-				} else if (index < -list.size()) {
+				} else if (index < -int64(list.size())) {
 					++index;
 				} else if (index > list.size()) {
 					--index;
@@ -1058,9 +1059,7 @@ bool ReadSetting(
 			auto id = Ui::Emoji::IdFromOldKey(static_cast<uint64>(i.key()));
 			if (!id.isEmpty()) {
 				auto index = Ui::Emoji::ColorIndexFromOldKey(i.value());
-				if (index >= 0) {
-					variants.insert(id, index);
-				}
+				variants.insert(id, index);
 			}
 		}
 		Core::App().settings().setLegacyEmojiVariants(std::move(variants));
@@ -1147,9 +1146,9 @@ bool ReadSetting(
 		settingsStream >> duckingEnabled;
 		if (CheckStreamStatus(settingsStream)) {
 			auto &app = Core::App().settings();
-			app.setCallOutputDeviceId(outputDeviceID);
+			app.setCallPlaybackDeviceId(outputDeviceID);
+			app.setCallCaptureDeviceId(inputDeviceID);
 			app.setCallOutputVolume(outputVolume);
-			app.setCallInputDeviceId(inputDeviceID);
 			app.setCallInputVolume(inputVolume);
 			app.setCallAudioDuckingEnabled(duckingEnabled);
 		}

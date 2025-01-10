@@ -27,6 +27,10 @@ class RpWidget;
 class AbstractButton;
 } // namespace Ui
 
+namespace Ui::Text {
+class CustomEmoji;
+} // namespace Ui::Text
+
 namespace Info::Profile {
 
 class EmojiStatusPanel;
@@ -34,9 +38,10 @@ class EmojiStatusPanel;
 enum class BadgeType {
 	None = 0x00,
 	Verified = 0x01,
-	Premium = 0x02,
-	Scam = 0x04,
-	Fake = 0x08,
+	BotVerified = 0x02,
+	Premium = 0x04,
+	Scam = 0x08,
+	Fake = 0x10,
 };
 inline constexpr bool is_flag_type(BadgeType) { return true; }
 
@@ -68,6 +73,8 @@ public:
 		int customStatusLoopsLimit = 0,
 		base::flags<BadgeType> allowed
 			= base::flags<BadgeType>::from_raw(-1));
+
+	~Badge();
 
 	[[nodiscard]] Ui::RpWidget *widget() const;
 

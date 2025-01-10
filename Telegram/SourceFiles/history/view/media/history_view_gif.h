@@ -37,7 +37,13 @@ enum class Error;
 
 namespace HistoryView {
 
+class Reply;
 class TranscribeButton;
+
+using TtlRoundPaintCallback = Fn<void(
+	QPainter&,
+	QRect,
+	const PaintContext &context)>;
 
 class Gif final : public File {
 public:
@@ -48,26 +54,14 @@ public:
 		bool spoiler);
 	~Gif();
 
+	bool hideMessageText() const override;
+
 	void draw(Painter &p, const PaintContext &context) const override;
 	TextState textState(QPoint point, StateRequest request) const override;
 
 	void clickHandlerPressedChanged(
 		const ClickHandlerPtr &p,
 		bool pressed) override;
-
-	[[nodiscard]] TextSelection adjustSelection(
-			TextSelection selection,
-			TextSelectType type) const override {
-		return _caption.adjustSelection(selection, type);
-	}
-	uint16 fullSelectionLength() const override {
-		return _caption.length();
-	}
-	bool hasTextForCopy() const override {
-		return !_caption.isEmpty();
-	}
-
-	TextForMimeData selectedText(TextSelection selection) const override;
 
 	bool uploading() const override;
 
@@ -76,7 +70,7 @@ public:
 	}
 
 	bool fullFeaturedGrouped(RectParts sides) const;
-	QSize sizeForGroupingOptimal(int maxWidth) const override;
+	QSize sizeForGroupingOptimal(int maxWidth, bool last) const override;
 	QSize sizeForGrouping(int width) const override;
 	void drawGrouped(
 		Painter &p,
@@ -96,14 +90,19 @@ public:
 	void stopAnimation() override;
 	void checkAnimation() override;
 
-	TextWithEntities getCaption() const override {
-		return _caption.toTextWithEntities();
-	}
+	void drawSpoilerTag(
+		Painter &p,
+		QRect rthumb,
+		const PaintContext &context,
+		Fn<QImage()> generateBackground) const override;
+	ClickHandlerPtr spoilerTagLink() const override;
+	QImage spoilerTagBackground() const override;
+
 	void hideSpoilers() override;
 	bool needsBubble() const override;
 	bool unwrapped() const override;
 	bool customInfoLayout() const override {
-		return _caption.isEmpty();
+		return true;
 	}
 	QRect contentRectForReactions() const override;
 	std::optional<int> reactionButtonCenterOverride() const override;
@@ -111,16 +110,13 @@ public:
 	QString additionalInfoString() const override;
 
 	bool skipBubbleTail() const override {
-		return isRoundedInBubbleBottom() && _caption.isEmpty();
+		return isRoundedInBubbleBottom();
 	}
 	bool isReadyForOpen() const override;
 
-	void parentTextUpdated() override;
-
 	bool hasHeavyPart() const override;
 	void unloadHeavyPart() override;
-
-	void refreshParentId(not_null<HistoryItem*> realParent) override;
+	bool enforceBubbleWidth() const override;
 
 	[[nodiscard]] static bool CanPlayInline(not_null<DocumentData*> document);
 
@@ -139,7 +135,6 @@ private:
 
 	void ensureDataMediaCreated() const;
 	void dataMediaCreated() const;
-	void refreshCaption();
 
 	[[nodiscard]] bool autoplayEnabled() const;
 
@@ -172,8 +167,8 @@ private:
 	[[nodiscard]] bool needInfoDisplay() const;
 	[[nodiscard]] bool needCornerStatusDisplay() const;
 	[[nodiscard]] int additionalWidth(
+		const Reply *reply,
 		const HistoryMessageVia *via,
-		const HistoryMessageReply *reply,
 		const HistoryMessageForwarded *forwarded) const;
 	[[nodiscard]] int additionalWidth() const;
 	[[nodiscard]] bool isUnwrapped() const;
@@ -210,11 +205,13 @@ private:
 
 	void togglePollingStory(bool enabled) const;
 
+	TtlRoundPaintCallback _drawTtl;
+
 	const not_null<DocumentData*> _data;
 	const FullStoryId _storyId;
-	Ui::Text::String _caption;
 	std::unique_ptr<Streamed> _streamed;
 	const std::unique_ptr<MediaSpoiler> _spoiler;
+	mutable std::unique_ptr<MediaSpoilerTag> _spoilerTag;
 	mutable std::unique_ptr<TranscribeButton> _transcribe;
 	mutable std::shared_ptr<Data::DocumentMedia> _dataMedia;
 	mutable std::unique_ptr<Image> _videoThumbnailFrame;
@@ -225,6 +222,8 @@ private:
 	mutable bool _thumbCacheBlurred : 1 = false;
 	mutable bool _thumbIsEllipse : 1 = false;
 	mutable bool _pollingStory : 1 = false;
+	mutable bool _purchasedPriceTag : 1 = false;
+	const bool _sensitiveSpoiler : 1 = false;
 
 };
 

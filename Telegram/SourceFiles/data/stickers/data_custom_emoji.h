@@ -66,8 +66,8 @@ public:
 	void resolve(DocumentId documentId, not_null<Listener*> listener);
 	void unregisterListener(not_null<Listener*> listener);
 
-	[[nodiscard]] rpl::producer<not_null<DocumentData*>> resolve(
-		DocumentId documentId);
+	[[nodiscard]] auto resolve(DocumentId documentId)
+		-> rpl::producer<not_null<DocumentData*>, rpl::empty_error>;
 
 	[[nodiscard]] std::unique_ptr<Ui::CustomEmoji::Loader> createLoader(
 		not_null<DocumentData*> document,
@@ -83,11 +83,31 @@ public:
 	[[nodiscard]] Main::Session &session() const;
 	[[nodiscard]] Session &owner() const;
 
+	[[nodiscard]] QString registerInternalEmoji(
+		QImage emoji,
+		QMargins padding = {},
+		bool textColor = true);
+	[[nodiscard]] QString registerInternalEmoji(
+		const style::icon &icon,
+		QMargins padding = {},
+		bool textColor = true);
+
+	[[nodiscard]] QString peerUserpicEmojiData(
+		not_null<PeerData*> peer,
+		QMargins padding = {},
+		bool respectSavedRepliesEtc = false);
+
 	[[nodiscard]] uint64 coloredSetId() const;
+
+	[[nodiscard]] TextWithEntities creditsEmoji(QMargins padding = {});
 
 private:
 	static constexpr auto kSizeCount = int(SizeTag::kCount);
 
+	struct InternalEmojiData {
+		QImage image;
+		bool textColor = true;
+	};
 	struct RepaintBunch {
 		crl::time when = 0;
 		std::vector<base::weak_ptr<Ui::CustomEmoji::Instance>> instances;
@@ -131,6 +151,12 @@ private:
 		SizeTag tag,
 		int sizeOverride,
 		LoaderFactory factory);
+	[[nodiscard]] std::unique_ptr<Ui::Text::CustomEmoji> internal(
+		QStringView data);
+	[[nodiscard]] std::unique_ptr<Ui::Text::CustomEmoji> userpic(
+		QStringView data,
+		Fn<void()> update,
+		int size);
 	[[nodiscard]] static int SizeIndex(SizeTag tag);
 
 	const not_null<Session*> _owner;
@@ -163,6 +189,9 @@ private:
 	bool _repaintTimerScheduled = false;
 	bool _requestSetsScheduled = false;
 
+	std::vector<InternalEmojiData> _internalEmoji;
+	base::flat_map<not_null<const style::icon*>, QString> _iconEmoji;
+
 #if 0 // inject-to-on_main
 	crl::time _repaintsLastAdded = 0;
 	rpl::lifetime _repaintsLifetime;
@@ -183,7 +212,9 @@ private:
 [[nodiscard]] TextWithEntities SingleCustomEmoji(
 	not_null<DocumentData*> document);
 
-[[nodiscard]] bool AllowEmojiWithoutPremium(not_null<PeerData*> peer);
+[[nodiscard]] bool AllowEmojiWithoutPremium(
+	not_null<PeerData*> peer,
+	DocumentData *exactEmoji = nullptr);
 
 void InsertCustomEmoji(
 	not_null<Ui::InputField*> field,

@@ -136,8 +136,8 @@ private:
 	void setCursorInChangeOverlay(bool inOverlay);
 	void updateCursor();
 	void updateVideo();
-	bool showSavedMessages() const;
-	bool showRepliesMessages() const;
+	[[nodiscard]] bool showSavedMessages() const;
+	[[nodiscard]] bool showRepliesMessages() const;
 	void checkStreamedIsStarted();
 	bool createStreamingObjects(not_null<PhotoData*> photo);
 	void clearStreaming();
@@ -203,10 +203,5 @@ private:
 	not_null<Ui::RpWidget*> parent,
 	not_null<UserData*> contact,
 	not_null<Window::SessionController*> controller);
-
-[[nodiscard]] object_ptr<Ui::RpWidget> CreateBoostReplaceUserpics(
-	not_null<Ui::RpWidget*> parent,
-	not_null<PeerData*> from,
-	not_null<PeerData*> to);
 
 } // namespace Ui

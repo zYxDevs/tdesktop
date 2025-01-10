@@ -19,9 +19,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lottie/lottie_icon.h"
 #include "main/main_session.h"
 #include "menu/menu_ttl_validator.h"
-#include "settings/settings_common.h"
+#include "settings/settings_common_session.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/painter.h"
+#include "ui/vertical_list.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
@@ -127,11 +128,12 @@ void TTLChatsBoxController::rowClicked(not_null<PeerListRow*> row) {
 
 std::unique_ptr<TTLChatsBoxController::Row> TTLChatsBoxController::createRow(
 		not_null<History*> history) {
-	if (history->peer->isSelf() || history->peer->isRepliesChat()) {
+	const auto peer = history->peer;
+	if (peer->isSelf() || peer->isRepliesChat() || peer->isVerifyCodes()) {
 		return nullptr;
-	} else if (history->peer->isChat() && history->peer->asChat()->amIn()) {
-	} else if (history->peer->isMegagroup()) {
-	} else if (!TTLMenu::TTLValidator(nullptr, history->peer).can()) {
+	} else if (peer->isChat() && peer->asChat()->amIn()) {
+	} else if (peer->isMegagroup()) {
+	} else if (!TTLMenu::TTLValidator(nullptr, peer).can()) {
 		return nullptr;
 	}
 	if (session().data().contactsNoChatsList()->contains({ history })) {
@@ -139,7 +141,7 @@ std::unique_ptr<TTLChatsBoxController::Row> TTLChatsBoxController::createRow(
 	}
 	auto result = std::make_unique<TTLRow>(history);
 	const auto applyStatus = [=, raw = result.get()] {
-		const auto ttl = history->peer->messagesTTL();
+		const auto ttl = peer->messagesTTL();
 		raw->setCustomStatus(
 			ttl
 				? tr::lng_settings_ttl_select_chats_status(
@@ -284,16 +286,16 @@ void GlobalTTL::rebuildButtons(TimeId currentTTL) const {
 	_buttons->clear();
 	for (const auto &ttl : ttls) {
 		const auto ttlText = Ui::FormatTTLAfter(ttl);
-		const auto button = AddButton(
+		const auto button = _buttons->add(object_ptr<Ui::SettingsButton>(
 			_buttons,
 			(!ttl)
 				? tr::lng_settings_ttl_after_off()
 				: tr::lng_settings_ttl_after(
 					lt_after_duration,
 					rpl::single(ttlText)),
-			st::settingsButtonNoIcon);
+			st::settingsButtonNoIcon));
 		button->setClickedCallback([=] {
-			if (_group->value() == ttl) {
+			if (_group->current() == ttl) {
 				return;
 			}
 			if (!ttl) {
@@ -304,7 +306,7 @@ void GlobalTTL::rebuildButtons(TimeId currentTTL) const {
 			showSure(ttl, false);
 		});
 		const auto radio = Ui::CreateChild<Ui::Radiobutton>(
-			button.get(),
+			button,
 			_group,
 			ttl,
 			QString());
@@ -326,8 +328,8 @@ void GlobalTTL::setupContent() {
 
 	SetupTopContent(content, _showFinished.events());
 
-	AddSkip(content);
-	AddSubsectionTitle(content, tr::lng_settings_ttl_after_subtitle());
+	Ui::AddSkip(content);
+	Ui::AddSubsectionTitle(content, tr::lng_settings_ttl_after_subtitle());
 
 	content->add(object_ptr<Ui::VerticalLayout>::fromRaw(_buttons));
 
@@ -343,10 +345,10 @@ void GlobalTTL::setupContent() {
 	}
 
 	const auto show = _controller->uiShow();
-	AddButton(
+	content->add(object_ptr<Ui::SettingsButton>(
 		content,
 		tr::lng_settings_ttl_after_custom(),
-		st::settingsButtonNoIcon)->setClickedCallback([=] {
+		st::settingsButtonNoIcon))->setClickedCallback([=] {
 		struct Args {
 			std::shared_ptr<Ui::Show> show;
 			TimeId startTtl;
@@ -356,13 +358,13 @@ void GlobalTTL::setupContent() {
 
 		show->showBox(Box(TTLMenu::TTLBox, TTLMenu::Args{
 			.show = show,
-			.startTtl = _group->value(),
+			.startTtl = _group->current(),
 			.callback = [=](TimeId ttl, Fn<void()>) { showSure(ttl, true); },
 			.hideDisable = true,
 		}));
 	});
 
-	AddSkip(content);
+	Ui::AddSkip(content);
 
 	auto footer = object_ptr<Ui::FlatLabel>(
 		content,
@@ -377,7 +379,7 @@ void GlobalTTL::setupContent() {
 		auto controller = std::make_unique<TTLChatsBoxController>(session);
 		auto initBox = [=, controller = controller.get()](
 				not_null<PeerListBox*> box) {
-			box->addButton(tr::lng_background_apply(), crl::guard(this, [=] {
+			box->addButton(tr::lng_settings_apply(), crl::guard(this, [=] {
 				const auto &peers = box->collectSelectedRows();
 				if (peers.empty()) {
 					return;
@@ -415,7 +417,7 @@ void GlobalTTL::setupContent() {
 	content->add(object_ptr<Ui::DividerLabel>(
 		content,
 		std::move(footer),
-		st::settingsDividerLabelPadding));
+		st::defaultBoxDividerLabelPadding));
 
 	Ui::ResizeFitChild(this, content);
 }

@@ -7,7 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "boxes/abstract_box.h"
+#include "ui/layers/box_content.h"
 #include "base/timer.h"
 #include "history/view/history_view_schedule_box.h"
 #include "ui/chat/forward_options_box.h"
@@ -24,7 +24,7 @@ struct PeerList;
 } // namespace style
 
 namespace SendMenu {
-enum class Type;
+struct Details;
 } // namespace SendMenu
 
 namespace Window {
@@ -37,6 +37,7 @@ struct SendOptions;
 
 namespace Main {
 class Session;
+class SessionShow;
 } // namespace Main
 
 namespace Dialogs {
@@ -58,16 +59,24 @@ class SlideWrap;
 class PopupMenu;
 } // namespace Ui
 
-QString AppendShareGameScoreUrl(
-	not_null<Main::Session*> session,
-	const QString &url,
-	const FullMsgId &fullId);
-void ShareGameScoreByHash(
-	not_null<Window::SessionController*> controller,
-	const QString &hash);
+class ShareBox;
+
+void FastShareMessage(
+	std::shared_ptr<Main::SessionShow> show,
+	not_null<HistoryItem*> item);
 void FastShareMessage(
 	not_null<Window::SessionController*> controller,
 	not_null<HistoryItem*> item);
+void FastShareLink(
+	not_null<Window::SessionController*> controller,
+	const QString &url);
+void FastShareLink(
+	std::shared_ptr<Main::SessionShow> show,
+	const QString &url);
+
+struct RecipientPremiumRequiredError;
+[[nodiscard]] auto SharePremiumRequiredError()
+-> Fn<RecipientPremiumRequiredError(not_null<UserData*>)>;
 
 class ShareBox final : public Ui::BoxContent {
 public:
@@ -82,7 +91,8 @@ public:
 	[[nodiscard]] static SubmitCallback DefaultForwardCallback(
 		std::shared_ptr<Ui::Show> show,
 		not_null<History*> history,
-		MessageIdsList msgIds);
+		MessageIdsList msgIds,
+		bool no_quote = false);
 
 	struct Descriptor {
 		not_null<Main::Session*> session;
@@ -97,11 +107,14 @@ public:
 		const style::InputField *stLabel = nullptr;
 		rpl::producer<QString> title;
 		struct {
-			int messagesCount = 0;
+			int sendersCount = 0;
+			int captionsCount = 0;
 			bool show = false;
-			bool hasCaptions = false;
 		} forwardOptions;
 		HistoryView::ScheduleBoxStyleArgs scheduleBoxStyle;
+
+		using PremiumRequiredError = RecipientPremiumRequiredError;
+		Fn<PremiumRequiredError(not_null<UserData*>)> premiumRequiredError;
 	};
 	ShareBox(QWidget*, Descriptor &&descriptor);
 
@@ -117,13 +130,10 @@ private:
 	void scrollAnimationCallback();
 
 	void submit(Api::SendOptions options);
-	void submitSilent();
-	void submitScheduled();
-	void submitWhenOnline();
 	void copyLink() const;
 	bool searchByUsername(bool useCache = false);
 
-	SendMenu::Type sendMenuType() const;
+	[[nodiscard]] SendMenu::Details sendMenuDetails() const;
 
 	void scrollTo(Ui::ScrollToRequest request);
 	void needSearchByUsername();
@@ -165,6 +175,8 @@ private:
 	QString _peopleQuery;
 	bool _peopleFull = false;
 	mtpRequestId _peopleRequest = 0;
+
+	RpWidget *_chatsFilters = nullptr;
 
 	using PeopleCache = QMap<QString, MTPcontacts_Found>;
 	PeopleCache _peopleCache;

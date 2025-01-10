@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/palette.h"
 
 #include <QtGui/QtEvents>
+#include <QtCore/QLocale>
 
 namespace Ui {
 
@@ -243,6 +244,7 @@ void GroupCallBar::setupInner() {
 }
 
 void GroupCallBar::setupRightButton(not_null<RoundButton*> button) {
+	button->setFullRadius(true);
 	rpl::combine(
 		_inner->widthValue(),
 		button->widthValue()

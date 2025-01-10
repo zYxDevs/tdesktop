@@ -7,7 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/filters/edit_filter_chats_list.h"
 
+#include "core/ui_integration.h"
+#include "data/data_chat_filters.h"
 #include "data/data_premium_limits.h"
+#include "data/data_session.h"
 #include "history/history.h"
 #include "window/window_session_controller.h"
 #include "lang/lang_keys.h"
@@ -28,6 +31,8 @@ using Flag = Data::ChatFilter::Flag;
 using Flags = Data::ChatFilter::Flags;
 
 constexpr auto kAllTypes = {
+	Flag::NewChats,
+	Flag::ExistingChats,
 	Flag::Contacts,
 	Flag::NonContacts,
 	Flag::Groups,
@@ -59,12 +64,26 @@ private:
 
 class ExceptionRow final : public ChatsListBoxController::Row {
 public:
-	explicit ExceptionRow(not_null<History*> history);
+	ExceptionRow(
+		not_null<History*> history,
+		not_null<PeerListDelegate*> delegate);
 
 	QString generateName() override;
 	QString generateShortName() override;
 	PaintRoundImageCallback generatePaintUserpicCallback(
 		bool forceRound) override;
+
+	void paintStatusText(
+		Painter &p,
+		const style::PeerListItem &st,
+		int x,
+		int y,
+		int availableWidth,
+		int outerWidth,
+		bool selected) override;
+
+private:
+	Ui::Text::String _filtersText;
 
 };
 
@@ -119,20 +138,48 @@ PaintRoundImageCallback TypeRow::generatePaintUserpicCallback(
 }
 
 Flag TypeRow::flag() const {
-	return static_cast<Flag>(id() & 0xFF);
+	return static_cast<Flag>(id() & 0xFFFF);
 }
 
-ExceptionRow::ExceptionRow(not_null<History*> history) : Row(history) {
-	if (peer()->isSelf()) {
+ExceptionRow::ExceptionRow(
+	not_null<History*> history,
+	not_null<PeerListDelegate*> delegate)
+: Row(history) {
+	auto filters = TextWithEntities();
+	for (const auto &filter : history->owner().chatsFilters().list()) {
+		if (filter.contains(history) && filter.id()) {
+			if (!filters.empty()) {
+				filters.append(u", "_q);
+			}
+			auto title = filter.title();
+			filters.append(title.isStatic
+				? Data::ForceCustomEmojiStatic(std::move(title.text))
+				: std::move(title.text));
+		}
+	}
+	if (!filters.empty()) {
+		const auto repaint = [=] { delegate->peerListUpdateRow(this); };
+		_filtersText.setMarkedText(
+			st::defaultTextStyle,
+			filters,
+			kMarkupTextOptions,
+			Core::MarkedTextContext{
+				.session = &history->session(),
+				.customEmojiRepaint = repaint,
+			});
+	} else if (peer()->isSelf()) {
 		setCustomStatus(tr::lng_saved_forward_here(tr::now));
 	}
 }
 
 QString ExceptionRow::generateName() {
-	return peer()->isSelf()
+	const auto peer = this->peer();
+	return peer->isSelf()
 		? tr::lng_saved_messages(tr::now)
-		: peer()->isRepliesChat()
+		: peer->isRepliesChat()
 		? tr::lng_replies_messages(tr::now)
+		: peer->isVerifyCodes()
+		? tr::lng_verification_codes(tr::now)
 		: Row::generateName();
 }
 
@@ -150,14 +197,46 @@ PaintRoundImageCallback ExceptionRow::generatePaintUserpicCallback(
 		return ForceRoundUserpicCallback(peer);
 	}
 	return [=](Painter &p, int x, int y, int outerWidth, int size) mutable {
+		using namespace Ui;
 		if (saved) {
-			Ui::EmptyUserpic::PaintSavedMessages(p, x, y, outerWidth, size);
+			EmptyUserpic::PaintSavedMessages(p, x, y, outerWidth, size);
 		} else if (replies) {
-			Ui::EmptyUserpic::PaintRepliesMessages(p, x, y, outerWidth, size);
+			EmptyUserpic::PaintRepliesMessages(p, x, y, outerWidth, size);
 		} else {
 			peer->paintUserpicLeft(p, userpic, x, y, outerWidth, size);
 		}
 	};
+}
+
+void ExceptionRow::paintStatusText(
+		Painter &p,
+		const style::PeerListItem &st,
+		int x,
+		int y,
+		int availableWidth,
+		int outerWidth,
+		bool selected) {
+	if (_filtersText.isEmpty()) {
+		Row::paintStatusText(
+			p,
+			st,
+			x,
+			y,
+			availableWidth,
+			outerWidth,
+			selected);
+	} else {
+		p.setPen(selected ? st.statusFgOver : st.statusFg);
+		_filtersText.draw(p, {
+			.position = { x, y },
+			.outerWidth = outerWidth,
+			.availableWidth = availableWidth,
+			.palette = &st::defaultTextPalette,
+			.now = crl::now(),
+			.pausedEmoji = false,
+			.elisionLines = 1,
+		});
+	}
 }
 
 TypeController::TypeController(
@@ -219,6 +298,8 @@ auto TypeController::rowSelectionChanges() const
 
 [[nodiscard]] QString FilterChatsTypeName(Flag flag) {
 	switch (flag) {
+	case Flag::NewChats: return tr::lng_filters_type_new(tr::now);
+	case Flag::ExistingChats: return tr::lng_filters_type_existing(tr::now);
 	case Flag::Contacts: return tr::lng_filters_type_contacts(tr::now);
 	case Flag::NonContacts:
 		return tr::lng_filters_type_non_contacts(tr::now);
@@ -241,6 +322,8 @@ void PaintFilterChatsTypeIcon(
 		int size) {
 	const auto &color1 = [&]() -> const style::color& {
 		switch (flag) {
+		case Flag::NewChats: return st::historyPeer5UserpicBg;
+		case Flag::ExistingChats: return st::historyPeer8UserpicBg;
 		case Flag::Contacts: return st::historyPeer4UserpicBg;
 		case Flag::NonContacts: return st::historyPeer7UserpicBg;
 		case Flag::Groups: return st::historyPeer2UserpicBg;
@@ -254,6 +337,8 @@ void PaintFilterChatsTypeIcon(
 	}();
 	const auto &color2 = [&]() -> const style::color& {
 		switch (flag) {
+		case Flag::NewChats: return st::historyPeer5UserpicBg2;
+		case Flag::ExistingChats: return st::historyPeer8UserpicBg2;
 		case Flag::Contacts: return st::historyPeer4UserpicBg2;
 		case Flag::NonContacts: return st::historyPeer7UserpicBg2;
 		case Flag::Groups: return st::historyPeer2UserpicBg2;
@@ -267,6 +352,8 @@ void PaintFilterChatsTypeIcon(
 	}();
 	const auto &icon = [&]() -> const style::icon& {
 		switch (flag) {
+		case Flag::NewChats: return st::windowFilterTypeNewChats;
+		case Flag::ExistingChats: return st::windowFilterTypeExistingChats;
 		case Flag::Contacts: return st::windowFilterTypeContacts;
 		case Flag::NonContacts: return st::windowFilterTypeNonContacts;
 		case Flag::Groups: return st::windowFilterTypeGroups;
@@ -323,17 +410,17 @@ EditFilterChatsListController::EditFilterChatsListController(
 	Flags options,
 	Flags selected,
 	const base::flat_set<not_null<History*>> &peers,
-	LimitBoxFactory limitBox)
+	int limit,
+	Fn<void()> showLimitReached)
 : ChatsListBoxController(session)
 , _session(session)
-, _limitBox(std::move(limitBox))
+, _showLimitReached(std::move(showLimitReached))
 , _title(std::move(title))
 , _peers(peers)
 , _options(options & ~Flag::Chatlist)
 , _selected(selected)
-, _limit(Data::PremiumLimits(session).dialogFiltersChatsCurrent())
+, _limit(limit)
 , _chatlist(options & Flag::Chatlist) {
-	Expects(_limitBox != nullptr);
 }
 
 Main::Session &EditFilterChatsListController::session() const {
@@ -341,9 +428,9 @@ Main::Session &EditFilterChatsListController::session() const {
 }
 
 int EditFilterChatsListController::selectedTypesCount() const {
-	Expects(_chatlist || _typesDelegate != nullptr);
+	Expects(_chatlist || !_options || _typesDelegate != nullptr);
 
-	if (_chatlist) {
+	if (_chatlist || !_options) {
 		return 0;
 	}
 	auto result = 0;
@@ -361,8 +448,8 @@ void EditFilterChatsListController::rowClicked(not_null<PeerListRow*> row) {
 	if (count < _limit || row->checked()) {
 		delegate()->peerListSetRowChecked(row, !row->checked());
 		updateTitle();
-	} else {
-		delegate()->peerListShowBox(_limitBox(count));
+	} else if (const auto copy = _showLimitReached) {
+		copy();
 	}
 }
 
@@ -386,7 +473,7 @@ bool EditFilterChatsListController::handleDeselectForeignRow(
 
 void EditFilterChatsListController::prepareViewHook() {
 	delegate()->peerListSetTitle(std::move(_title));
-	if (!_chatlist) {
+	if (!_chatlist && _options) {
 		delegate()->peerListSetAboveWidget(prepareTypesList());
 	}
 
@@ -394,7 +481,7 @@ void EditFilterChatsListController::prepareViewHook() {
 	const auto rows = std::make_unique<std::optional<ExceptionRow>[]>(count);
 	auto i = 0;
 	for (const auto &history : _peers) {
-		rows[i++].emplace(history);
+		rows[i++].emplace(history, delegate());
 	}
 	auto pointers = std::vector<ExceptionRow*>();
 	pointers.reserve(count);
@@ -469,8 +556,13 @@ object_ptr<Ui::RpWidget> EditFilterChatsListController::prepareTypesList() {
 
 auto EditFilterChatsListController::createRow(not_null<History*> history)
 -> std::unique_ptr<Row> {
+	const auto business = (_options & (Flag::NewChats | Flag::ExistingChats))
+		|| (!_options && !_chatlist);
+	if (business && (history->peer->isSelf() || !history->peer->isUser())) {
+		return nullptr;
+	}
 	return history->inChatList()
-		? std::make_unique<ExceptionRow>(history)
+		? std::make_unique<ExceptionRow>(history, delegate())
 		: nullptr;
 }
 

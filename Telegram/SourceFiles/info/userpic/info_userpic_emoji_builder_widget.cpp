@@ -23,7 +23,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/userpic/info_userpic_emoji_builder_preview.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
-#include "settings/settings_common.h"
 #include "ui/controls/emoji_button.h"
 #include "ui/empty_userpic.h"
 #include "ui/layers/generic_box.h"
@@ -494,7 +493,7 @@ not_null<Ui::VerticalLayout*> CreateUserpicBuilder(
 							1. - progress);
 					}
 					state->circleButtons[now]->setSelectedProgress(progress);
-				}, 0., 1., st::userpicBuilderEmojiSlideDuration);
+				}, 0., 1., st::universalDuration);
 				state->colorIndex = now;
 
 				const auto result = isSpecial

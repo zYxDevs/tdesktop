@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_text.h"
 #include "history/admin_log/history_admin_log_section.h"
 #include "history/admin_log/history_admin_log_filter.h"
+#include "history/view/history_view_context_menu.h"
 #include "history/view/history_view_message.h"
 #include "history/view/history_view_service_message.h"
 #include "history/view/history_view_cursor_state.h"
@@ -36,18 +37,25 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/chat/chat_style.h"
+#include "ui/widgets/checkbox.h"
+#include "ui/widgets/expandable_peer_list.h"
+#include "ui/widgets/menu/menu_add_action_callback_factory.h"
+#include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/image/image.h"
 #include "ui/text/text_utilities.h"
 #include "ui/inactive_press.h"
 #include "ui/painter.h"
+#include "ui/vertical_list.h"
 #include "ui/effects/path_shift_gradient.h"
+#include "ui/ui_utility.h"
 #include "core/click_handler_types.h"
 #include "core/file_utilities.h"
 #include "lang/lang_keys.h"
 #include "boxes/peers/edit_participant_box.h"
 #include "boxes/peers/edit_participants_box.h"
 #include "ui/boxes/confirm_box.h"
+#include "data/data_changes.h"
 #include "data/data_session.h"
 #include "data/data_photo.h"
 #include "data/data_photo_media.h"
@@ -59,10 +67,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_channel.h"
 #include "data/data_user.h"
 #include "styles/style_chat.h"
+#include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 
 #include <QtWidgets/QApplication>
 #include <QtGui/QClipboard>
+
+#include "boxes/abstract_box.h"
 
 namespace AdminLog {
 namespace {
@@ -265,13 +276,13 @@ InnerWidget::InnerWidget(
 	_scrollDateHideTimer.setCallback([=] { scrollDateHideByTimer(); });
 	session().data().viewRepaintRequest(
 	) | rpl::start_with_next([=](auto view) {
-		if (view->delegate() == this) {
+		if (myView(view)) {
 			repaintItem(view);
 		}
 	}, lifetime());
 	session().data().viewResizeRequest(
 	) | rpl::start_with_next([=](auto view) {
-		if (view->delegate() == this) {
+		if (myView(view)) {
 			resizeItem(view);
 		}
 	}, lifetime());
@@ -283,7 +294,7 @@ InnerWidget::InnerWidget(
 	}, lifetime());
 	session().data().viewLayoutChanged(
 	) | rpl::start_with_next([=](auto view) {
-		if (view->delegate() == this) {
+		if (myView(view)) {
 			if (view->isUnderCursor()) {
 				updateSelected();
 			}
@@ -323,6 +334,10 @@ InnerWidget::InnerWidget(
 	_antiSpamValidator.resolveUser(crl::guard(
 		this,
 		[=] { requestAdmins(); }));
+}
+
+bool InnerWidget::myView(not_null<const HistoryView::Element*> view) const {
+	return !_items.empty() && (view->delegate().get() == this);
 }
 
 Main::Session &InnerWidget::session() const {
@@ -443,7 +458,6 @@ void InnerWidget::applyFilter(FilterValue &&value) {
 }
 
 void InnerWidget::applySearch(const QString &query) {
-	auto clearQuery = query.trimmed();
 	if (_searchQuery != query) {
 		_searchQuery = query;
 		clearAndRequestLog();
@@ -497,10 +511,85 @@ void InnerWidget::requestAdmins() {
 void InnerWidget::showFilter(Fn<void(FilterValue &&filter)> callback) {
 	if (_admins.empty()) {
 		_showFilterCallback = std::move(callback);
-	} else {
-		_controller->show(
-			Box<FilterBox>(_channel, _admins, _filter, std::move(callback)));
+		return;
 	}
+	const auto isChannel = !_channel->isMegagroup();
+	const auto filter = _filter;
+	const auto admins = _admins;
+	_controller->uiShow()->show(Box([=](not_null<Ui::GenericBox*> box) {
+		box->setTitle(tr::lng_manage_peer_recent_actions());
+		Ui::AddSubsectionTitle(
+			box->verticalLayout(),
+			tr::lng_admin_log_filter_actions_type_subtitle());
+		const auto collectFlags = FillFilterValueList(
+			box->verticalLayout(),
+			isChannel,
+			filter);
+		Ui::AddSkip(box->verticalLayout());
+		Ui::AddDivider(box->verticalLayout());
+		Ui::AddSkip(box->verticalLayout());
+		Ui::AddSubsectionTitle(
+			box->verticalLayout(),
+			tr::lng_admin_log_filter_actions_admins_subtitle());
+		Ui::AddSkip(box->verticalLayout());
+
+		auto checkedPeerId = std::vector<PeerId>();
+		{
+			checkedPeerId.reserve(admins.size());
+			for (const auto &user : admins) {
+				if (!filter.admins
+					|| ranges::contains(
+						(*filter.admins),
+						user->id,
+						&UserData::id)) {
+					checkedPeerId.push_back(user->id);
+				}
+			}
+		}
+
+		const auto checkbox = box->addRow(
+			object_ptr<Ui::Checkbox>(
+				box->verticalLayout(),
+				tr::lng_admin_log_filter_actions_admins_section(
+					tr::now,
+					Ui::Text::WithEntities),
+				checkedPeerId.size() == admins.size(),
+				st::defaultBoxCheckbox));
+		using Controller = Ui::ExpandablePeerListController;
+		using Data = Ui::ExpandablePeerListController::Data;
+		const auto controller = box->lifetime().make_state<Controller>(Data{
+			.participants = ranges::views::all(
+				admins
+			) | ranges::views::transform([](
+					not_null<UserData*> user) -> not_null<PeerData*> {
+				return not_null{ user };
+			}) | ranges::to_vector,
+			.checked = std::move(checkedPeerId),
+			.skipSingle = true,
+			.hideRightButton = true,
+			.checkTopOnAllInner = true,
+		});
+		Ui::AddExpandablePeerList(
+			checkbox,
+			controller,
+			box->verticalLayout());
+
+		box->addButton(tr::lng_settings_save(), [=] {
+			const auto peers = controller->collectRequests();
+			const auto users = ranges::views::all(
+				peers
+			) | ranges::views::transform([](not_null<PeerData*> p) {
+				return not_null{ p->asUser() };
+			}) | ranges::to_vector;
+			callback(FilterValue{
+				.flags = collectFlags(),
+				.admins = (admins.size() == users.size())
+					? std::nullopt
+					: std::optional(users),
+			});
+		});
+		box->addButton(tr::lng_cancel(), [box] { box->closeBox(); });
+	}));
 }
 
 void InnerWidget::clearAndRequestLog() {
@@ -515,7 +604,7 @@ void InnerWidget::clearAndRequestLog() {
 
 void InnerWidget::updateEmptyText() {
 	auto hasSearch = !_searchQuery.isEmpty();
-	auto hasFilter = (_filter.flags != 0) || !_filter.allUsers;
+	auto hasFilter = _filter.flags || _filter.admins;
 	auto text = Ui::Text::Semibold((hasSearch || hasFilter)
 		? tr::lng_admin_log_no_results_title(tr::now)
 		: tr::lng_admin_log_no_events_title(tr::now));
@@ -580,13 +669,9 @@ bool InnerWidget::elementUnderCursor(
 	return (Element::Hovered() == view);
 }
 
-float64 InnerWidget::elementHighlightOpacity(
-		not_null<const HistoryItem*> item) const {
-	return 0.;
-}
-
-bool InnerWidget::elementInSelectionMode() {
-	return false;
+HistoryView::SelectionModeResult InnerWidget::elementInSelectionMode(
+		const HistoryView::Element *) {
+	return {};
 }
 
 bool InnerWidget::elementIntersectsRange(
@@ -649,6 +734,12 @@ void InnerWidget::elementSendBotCommand(
 	const FullMsgId &context) {
 }
 
+void InnerWidget::elementSearchInList(
+	const QString &query,
+	const FullMsgId &context) {
+
+}
+
 void InnerWidget::elementHandleViaClick(not_null<UserData*> bot) {
 }
 
@@ -660,7 +751,7 @@ not_null<Ui::PathShiftGradient*> InnerWidget::elementPathShiftGradient() {
 	return _pathGradient.get();
 }
 
-void InnerWidget::elementReplyTo(const FullMsgId &to) {
+void InnerWidget::elementReplyTo(const FullReplyTo &to) {
 }
 
 void InnerWidget::elementStartInteraction(not_null<const Element*> view) {
@@ -674,8 +765,17 @@ void InnerWidget::elementStartPremium(
 void InnerWidget::elementCancelPremium(not_null<const Element*> view) {
 }
 
+void InnerWidget::elementStartEffect(
+	not_null<const Element*> view,
+	Element *replacing) {
+}
+
 QString InnerWidget::elementAuthorRank(not_null<const Element*> view) {
 	return {};
+}
+
+bool InnerWidget::elementHideTopicButton(not_null<const Element*> view) {
+	return false;
 }
 
 void InnerWidget::saveState(not_null<SectionMemento*> memento) {
@@ -698,11 +798,16 @@ void InnerWidget::saveState(not_null<SectionMemento*> memento) {
 }
 
 void InnerWidget::restoreState(not_null<SectionMemento*> memento) {
-	_items = memento->takeItems();
-	for (auto &item : _items) {
+	// OwnedItem::refreshView may call requestItemResize.
+	// So we postpone resizing until all views are created.
+	_items.clear();
+	auto items = memento->takeItems();
+	for (auto &item : items) {
 		item.refreshView(this);
 		_itemsByData.emplace(item->data(), item.get());
 	}
+	_items = std::move(items);
+
 	_eventIds = memento->takeEventIds();
 	_admins = memento->takeAdmins();
 	_adminsCanEdit = memento->takeAdminsCanEdit();
@@ -727,7 +832,7 @@ void InnerWidget::preloadMore(Direction direction) {
 		using Flag = MTPDchannelAdminLogEventsFilter::Flag;
 		using LocalFlag = FilterValue::Flag;
 		const auto empty = MTPDchannelAdminLogEventsFilter::Flags(0);
-		const auto f = _filter.flags;
+		const auto f = _filter.flags.value_or(LocalFlag());
 		return empty
 			| ((f & LocalFlag::Join) ? Flag::f_join : empty)
 			| ((f & LocalFlag::Leave) ? Flag::f_leave : empty)
@@ -745,16 +850,17 @@ void InnerWidget::preloadMore(Direction direction) {
 			| ((f & LocalFlag::Delete) ? Flag::f_delete : empty)
 			| ((f & LocalFlag::GroupCall) ? Flag::f_group_call : empty)
 			| ((f & LocalFlag::Invites) ? Flag::f_invites : empty)
-			| ((f & LocalFlag::Topics) ? Flag::f_forums : empty);
+			| ((f & LocalFlag::Topics) ? Flag::f_forums : empty)
+			| ((f & LocalFlag::SubExtend) ? Flag::f_sub_extend : empty);
 	}();
 	if (_filter.flags != 0) {
 		flags |= MTPchannels_GetAdminLog::Flag::f_events_filter;
 	}
 	auto admins = QVector<MTPInputUser>(0);
-	if (!_filter.allUsers) {
-		if (!_filter.admins.empty()) {
-			admins.reserve(_filter.admins.size());
-			for (auto &admin : _filter.admins) {
+	if (_filter.admins) {
+		if (!_filter.admins->empty()) {
+			admins.reserve(_filter.admins->size());
+			for (const auto &admin : (*_filter.admins)) {
 				admins.push_back(admin->inputUser);
 			}
 		}
@@ -950,10 +1056,10 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 	auto clip = e->rect();
 	auto context = _controller->preparePaintContext({
 		.theme = _theme.get(),
-		.visibleAreaTop = _visibleTop,
-		.visibleAreaTopGlobal = mapToGlobal(QPoint(0, _visibleTop)).y(),
-		.visibleAreaWidth = width(),
 		.clip = clip,
+		.visibleAreaPositionGlobal = mapToGlobal(QPoint(0, _visibleTop)),
+		.visibleAreaTop = _visibleTop,
+		.visibleAreaWidth = width(),
 	});
 	if (_items.empty() && _upLoaded && _downLoaded) {
 		paintEmpty(p, context.st);
@@ -1249,9 +1355,15 @@ void InnerWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 						showContextInFolder(lnkDocument);
 					}, &st::menuIconShowInFolder);
 				}
-				_menu->addAction(lnkIsVideo ? tr::lng_context_save_video(tr::now) : (lnkIsVoice ?  tr::lng_context_save_audio(tr::now) : (lnkIsAudio ?  tr::lng_context_save_audio_file(tr::now) :  tr::lng_context_save_file(tr::now))), base::fn_delayed(st::defaultDropdownMenu.menu.ripple.hideDuration, this, [this, lnkDocument] {
+				_menu->addAction(lnkIsVideo ? tr::lng_context_save_video(tr::now) : (lnkIsVoice ? tr::lng_context_save_audio(tr::now) : (lnkIsAudio ?  tr::lng_context_save_audio_file(tr::now) :  tr::lng_context_save_file(tr::now))), base::fn_delayed(st::defaultDropdownMenu.menu.ripple.hideDuration, this, [this, lnkDocument] {
 					saveDocumentToFile(lnkDocument);
 				}), &st::menuIconDownload);
+
+				HistoryView::AddCopyFilename(
+					_menu,
+					lnkDocument,
+					[] { return false; });
+
 				if (lnkDocument->hasAttachedStickers()) {
 					const auto controller = _controller;
 					auto callback = [=] {
@@ -1295,6 +1407,7 @@ void InnerWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					&& !link
 					&& (view->hasVisibleText()
 						|| mediaHasTextForCopy
+						|| !item->factcheckText().empty()
 						|| item->Has<HistoryMessageLogEntryOriginal>())) {
 					_menu->addAction(tr::lng_context_copy_text(tr::now), [=] {
 						copyContextText(itemId);
@@ -1409,15 +1522,28 @@ void InnerWidget::suggestRestrictParticipant(
 	}
 	_menu->addAction(tr::lng_context_restrict_user(tr::now), [=] {
 		const auto user = participant->asUser();
-		auto editRestrictions = [=](bool hasAdminRights, ChatRestrictionsInfo currentRights) {
+		auto editRestrictions = [=](
+				bool hasAdminRights,
+				ChatRestrictionsInfo currentRights,
+				UserData *by,
+				TimeId since) {
 			auto weak = QPointer<InnerWidget>(this);
 			auto weakBox = std::make_shared<QPointer<Ui::BoxContent>>();
-			auto box = Box<EditRestrictedBox>(_channel, user, hasAdminRights, currentRights);
+			auto box = Box<EditRestrictedBox>(
+				_channel,
+				user,
+				hasAdminRights,
+				currentRights,
+				by,
+				since);
 			box->setSaveCallback([=](
 					ChatRestrictionsInfo oldRights,
 					ChatRestrictionsInfo newRights) {
 				if (weak) {
-					weak->restrictParticipant(participant, oldRights, newRights);
+					weak->restrictParticipant(
+						participant,
+						oldRights,
+						newRights);
 				}
 				if (*weakBox) {
 					(*weakBox)->closeBox();
@@ -1444,81 +1570,58 @@ void InnerWidget::suggestRestrictParticipant(
 			});
 			*weakBox = _controller->show(Ui::MakeConfirmBox({ text, sure }));
 		} else if (base::contains(_admins, user)) {
-			editRestrictions(true, ChatRestrictionsInfo());
+			editRestrictions(true, {}, nullptr, 0);
 		} else {
 			_api.request(MTPchannels_GetParticipant(
 				_channel->inputChannel,
 				user->input
 			)).done([=](const MTPchannels_ChannelParticipant &result) {
-				Expects(result.type() == mtpc_channels_channelParticipant);
+				user->owner().processUsers(result.data().vusers());
 
-				auto &participant = result.c_channels_channelParticipant();
-				_channel->owner().processUsers(participant.vusers());
-				auto type = participant.vparticipant().type();
-				if (type == mtpc_channelParticipantBanned) {
-					auto &banned = participant.vparticipant().c_channelParticipantBanned();
+				const auto participant = Api::ChatParticipant(
+					result.data().vparticipant(),
+					user);
+				using Type = Api::ChatParticipant::Type;
+				if (participant.type() == Type::Creator
+					|| participant.type() == Type::Admin) {
+					editRestrictions(true, {}, nullptr, 0);
+				} else {
+					const auto since = participant.restrictedSince();
 					editRestrictions(
 						false,
-						ChatRestrictionsInfo(banned.vbanned_rights()));
-				} else {
-					auto hasAdminRights = (type == mtpc_channelParticipantAdmin)
-						|| (type == mtpc_channelParticipantCreator);
-					editRestrictions(hasAdminRights, ChatRestrictionsInfo());
+						participant.restrictions(),
+						user->owner().user(participant.by()),
+						since);
 				}
 			}).fail([=] {
-				editRestrictions(false, ChatRestrictionsInfo());
+				editRestrictions(false, {}, nullptr, 0);
 			}).send();
 		}
 	}, &st::menuIconPermissions);
 
-	_menu->addAction(tr::lng_context_remove_from_group(tr::now), [=] {
-		PeerData* sender = nullptr;
-		if (participant->isUser()) {
-			sender = participant->asUser();
-		} else {
-			sender = participant->asChannel();
-		}
-		const auto text = tr::lng_profile_sure_kick(tr::now, lt_user, sender->name());
-		auto editRestrictions = [=](bool hasAdminRights, ChatRestrictionsInfo currentRights) {
-			Ui::show(
-				Ui::MakeConfirmBox({
-					.text = text,
-					.confirmed = crl::guard(this, [=](Fn<void()> &&close) {
-						restrictParticipant(
-							participant,
-							ChatRestrictionsInfo(),
-							ChannelData::KickedRestrictedRights(participant));
-						close();
-					}),
-					.confirmText = tr::lng_profile_kick(tr::now),
-				}),
-				Ui::LayerOption::KeepOther);
+	{
+		const auto lifetime = std::make_shared<rpl::lifetime>();
+		auto handler = [=, this] {
+			participant->session().changes().peerUpdates(
+				_channel,
+				Data::PeerUpdate::Flag::Members
+			) | rpl::start_with_next([=](const Data::PeerUpdate &update) {
+				_downLoaded = false;
+				preloadMore(Direction::Down);
+				lifetime->destroy();
+			}, *lifetime);
+			participant->session().api().chatParticipants().kick(
+				_channel,
+				participant,
+				{ _channel->restrictions(), 0 });
 		};
-		if (base::contains(_admins, sender)) {
-			editRestrictions(true, ChatRestrictionsInfo());
-		} else {
-			_api.request(MTPchannels_GetParticipant(
-				_channel->inputChannel,
-				sender->input
-			)).done([=](const MTPchannels_ChannelParticipant &result) {
-				Expects(result.type() == mtpc_channels_channelParticipant);
-
-				auto &participant = result.c_channels_channelParticipant();
-				_channel->owner().processUsers(participant.vusers());
-				auto type = participant.vparticipant().type();
-				if (type == mtpc_channelParticipantBanned) {
-					auto &banned = participant.vparticipant().c_channelParticipantBanned();
-					editRestrictions(false, ChatRestrictionsInfo(banned.vbanned_rights()));
-				} else {
-					auto hasAdminRights = (type == mtpc_channelParticipantAdmin)
-										  || (type == mtpc_channelParticipantCreator);
-					editRestrictions(hasAdminRights, ChatRestrictionsInfo());
-				}
-			}).fail([=](const MTP::Error &error) {
-				editRestrictions(false, ChatRestrictionsInfo());
-			}).send();
-		}
-	}, &st::menuIconRemove);
+		Ui::Menu::CreateAddActionCallback(_menu)({
+			.text = tr::lng_context_ban_user(tr::now),
+			.handler = std::move(handler),
+			.icon = &st::menuIconBlockAttention,
+			.isAttention = true,
+		});
+	}
 }
 
 void InnerWidget::restrictParticipant(

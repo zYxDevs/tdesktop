@@ -8,8 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/unique_qptr.h"
-#include "ui/text/text_block.h"
 #include "ui/widgets/menu/menu_item_base.h"
+#include "ui/text/text_custom_emoji.h"
 
 namespace Ui {
 
@@ -36,6 +36,16 @@ enum class WhoReadType {
 	Listened,
 	Watched,
 	Reacted,
+	Edited,
+	Original,
+};
+
+enum class WhoReadState : uchar {
+	Empty,
+	Unknown,
+	MyHidden,
+	HisHidden,
+	TooOld,
 };
 
 struct WhoReadContent {
@@ -44,21 +54,35 @@ struct WhoReadContent {
 	QString singleCustomEntityData;
 	int fullReactionsCount = 0;
 	int fullReadCount = 0;
-	bool unknown = false;
+	WhoReadState state = WhoReadState::Empty;
 };
 
 [[nodiscard]] base::unique_qptr<Menu::ItemBase> WhoReactedContextAction(
 	not_null<PopupMenu*> menu,
 	rpl::producer<WhoReadContent> content,
 	Text::CustomEmojiFactory factory,
-	Fn<void(uint64)> participantChosen,
+	Fn<void(WhoReadParticipant)> participantChosen,
 	Fn<void()> showAllChosen);
+
+[[nodiscard]] base::unique_qptr<Menu::ItemBase> WhenReadContextAction(
+	not_null<PopupMenu*> menu,
+	rpl::producer<WhoReadContent> content,
+	Fn<void()> showOrPremium = nullptr);
+
+enum class WhoReactedType : uchar {
+	Viewed,
+	Reacted,
+	Reposted,
+	Forwarded,
+	Preloader,
+	RefRecipient,
+	RefRecipientNow,
+};
 
 struct WhoReactedEntryData {
 	QString text;
 	QString date;
-	bool dateReacted = false;
-	bool preloader = false;
+	WhoReactedType type = WhoReactedType::Viewed;
 	QString customEntityData;
 	QImage userpic;
 	Fn<void()> callback;
@@ -95,8 +119,7 @@ private:
 	QImage _userpic;
 	int _textWidth = 0;
 	int _customSize = 0;
-	bool _dateReacted = false;
-	bool _preloader = false;
+	WhoReactedType _type = WhoReactedType::Viewed;
 
 };
 
@@ -104,7 +127,7 @@ class WhoReactedListMenu final {
 public:
 	WhoReactedListMenu(
 		Text::CustomEmojiFactory factory,
-		Fn<void(uint64)> participantChosen,
+		Fn<void(WhoReadParticipant)> participantChosen,
 		Fn<void()> showAllChosen);
 
 	void clear();
@@ -117,7 +140,7 @@ public:
 
 private:
 	const Text::CustomEmojiFactory _customEmojiFactory;
-	const Fn<void(uint64)> _participantChosen;
+	const Fn<void(WhoReadParticipant)> _participantChosen;
 	const Fn<void()> _showAllChosen;
 
 	std::vector<not_null<WhoReactedEntryAction*>> _actions;

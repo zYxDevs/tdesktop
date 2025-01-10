@@ -18,8 +18,9 @@ public:
 		const style::color color2;
 	};
 
-	[[nodiscard]] static int ColorIndex(uint64 id);
-	[[nodiscard]] static EmptyUserpic::BgColors UserpicColor(int id);
+	[[nodiscard]] static uint8 ColorIndex(uint64 id);
+	[[nodiscard]] static EmptyUserpic::BgColors UserpicColor(
+		uint8 colorIndex);
 
 	[[nodiscard]] static QString ExternalName();
 	[[nodiscard]] static QString InaccessibleName();
@@ -79,6 +80,54 @@ public:
 		QBrush bg,
 		const style::color &fg);
 	[[nodiscard]] static QImage GenerateRepliesMessages(int size);
+
+	static void PaintHiddenAuthor(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size);
+	static void PaintHiddenAuthor(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size,
+		QBrush bg,
+		const style::color &fg);
+	[[nodiscard]] static QImage GenerateHiddenAuthor(int size);
+
+	static void PaintMyNotes(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size);
+	static void PaintMyNotes(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size,
+		QBrush bg,
+		const style::color &fg);
+	[[nodiscard]] static QImage GenerateMyNotes(int size);
+
+	static void PaintCurrency(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size);
+	static void PaintCurrency(
+		QPainter &p,
+		int x,
+		int y,
+		int outerWidth,
+		int size,
+		QBrush bg,
+		const style::color &fg);
+	[[nodiscard]] static QImage GenerateCurrency(int size);
 
 	~EmptyUserpic();
 

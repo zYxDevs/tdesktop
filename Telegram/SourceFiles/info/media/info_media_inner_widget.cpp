@@ -43,7 +43,7 @@ InnerWidget::InnerWidget(
 // Allows showing additional shared media links and tabs.
 // Used for shared media in Saved Messages.
 void InnerWidget::setupOtherTypes() {
-	if (_controller->key().peer()->isSelf() && _isStackBottom) {
+	if (_controller->key().peer()->sharedMediaInfo() && _isStackBottom) {
 		createOtherTypes();
 	} else {
 		_otherTypes.destroy();
@@ -137,9 +137,7 @@ bool InnerWidget::showInternal(not_null<Memento*> memento) {
 }
 
 object_ptr<ListWidget> InnerWidget::setupList() {
-	auto result = object_ptr<ListWidget>(
-		this,
-		_controller);
+	auto result = object_ptr<ListWidget>(this, _controller);
 	result->heightValue(
 	) | rpl::start_with_next(
 		[this] { refreshHeight(); },

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "ui/text/text_variant.h"
 #include "ui/rp_widget.h"
 #include "ui/round_rect.h"
 #include "base/object_ptr.h"
@@ -15,6 +16,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace anim {
 enum class repeat : uchar;
 } // namespace anim
+
+namespace Info {
+struct SelectedItems;
+enum class SelectionAction;
+} // namespace Info
 
 namespace Main {
 class Session;
@@ -50,29 +56,6 @@ namespace Settings {
 
 using Button = Ui::SettingsButton;
 
-class AbstractSection;
-
-struct SectionMeta {
-	[[nodiscard]] virtual object_ptr<AbstractSection> create(
-		not_null<QWidget*> parent,
-		not_null<Window::SessionController*> controller) const = 0;
-};
-
-template <typename SectionType>
-struct SectionMetaImplementation : SectionMeta {
-	object_ptr<AbstractSection> create(
-		not_null<QWidget*> parent,
-		not_null<Window::SessionController*> controller
-	) const final override {
-		return object_ptr<SectionType>(parent, controller);
-	}
-
-	[[nodiscard]] static not_null<SectionMeta*> Meta() {
-		static SectionMetaImplementation result;
-		return &result;
-	}
-};
-
 class AbstractSection : public Ui::RpWidget {
 public:
 	using RpWidget::RpWidget;
@@ -86,6 +69,12 @@ public:
 	}
 	[[nodiscard]] virtual rpl::producer<std::vector<Type>> removeFromStack() {
 		return nullptr;
+	}
+	[[nodiscard]] virtual bool closeByOutsideClick() const {
+		return true;
+	}
+	virtual void checkBeforeClose(Fn<void()> close) {
+		close();
 	}
 	[[nodiscard]] virtual rpl::producer<QString> title() = 0;
 	virtual void sectionSaveChanges(FnMut<void()> done) {
@@ -112,18 +101,22 @@ public:
 	}
 	virtual void setStepDataReference(std::any &data) {
 	}
-};
 
-template <typename SectionType>
-class Section : public AbstractSection {
-public:
-	using AbstractSection::AbstractSection;
-
-	[[nodiscard]] static Type Id() {
-		return &SectionMetaImplementation<SectionType>::Meta;
+	[[nodiscard]] virtual auto selectedListValue()
+	-> rpl::producer<Info::SelectedItems> {
+		return nullptr;
 	}
-	[[nodiscard]] Type id() const final override {
-		return Id();
+	virtual void selectionAction(Info::SelectionAction action) {
+	}
+	virtual void fillTopBarMenu(
+		const Ui::Menu::MenuCallback &addAction) {
+	}
+
+	virtual bool paintOuter(
+			not_null<QWidget*> outer,
+			int maxVisibleHeight,
+			QRect clip) {
+		return false;
 	}
 };
 
@@ -138,6 +131,7 @@ struct IconDescriptor {
 	IconType type = IconType::Rounded;
 	const style::color *background = nullptr;
 	std::optional<QBrush> backgroundBrush; // Can be useful for gradients.
+	bool newBadge = false;
 
 	explicit operator bool() const {
 		return (icon != nullptr);
@@ -162,22 +156,16 @@ private:
 
 };
 
-void AddSkip(not_null<Ui::VerticalLayout*> container);
-void AddSkip(not_null<Ui::VerticalLayout*> container, int skip);
-void AddDivider(not_null<Ui::VerticalLayout*> container);
-void AddDividerText(
-	not_null<Ui::VerticalLayout*> container,
-	rpl::producer<QString> text);
 void AddButtonIcon(
 	not_null<Ui::AbstractButton*> button,
 	const style::SettingsButton &st,
 	IconDescriptor &&descriptor);
-object_ptr<Button> CreateButton(
+object_ptr<Button> CreateButtonWithIcon(
 	not_null<QWidget*> parent,
 	rpl::producer<QString> text,
 	const style::SettingsButton &st,
 	IconDescriptor &&descriptor = {});
-not_null<Button*> AddButton(
+not_null<Button*> AddButtonWithIcon(
 	not_null<Ui::VerticalLayout*> container,
 	rpl::producer<QString> text,
 	const style::SettingsButton &st,
@@ -193,16 +181,20 @@ void CreateRightLabel(
 	rpl::producer<QString> label,
 	const style::SettingsButton &st,
 	rpl::producer<QString> buttonText);
-not_null<Ui::FlatLabel*> AddSubsectionTitle(
-	not_null<Ui::VerticalLayout*> container,
-	rpl::producer<QString> text,
-	style::margins addPadding = {},
-	const style::FlatLabel *st = nullptr);
+
+struct DividerWithLottieDescriptor {
+	QString lottie;
+	std::optional<anim::repeat> lottieRepeat;
+	std::optional<int> lottieSize;
+	std::optional<QMargins> lottieMargins;
+	rpl::producer<> showFinished;
+	rpl::producer<TextWithEntities> about;
+	std::optional<QMargins> aboutMargins;
+	RectParts parts = RectPart::Top | RectPart::Bottom;
+};
 void AddDividerTextWithLottie(
-	not_null<Ui::VerticalLayout*> parent,
-	rpl::producer<> showFinished,
-	rpl::producer<TextWithEntities> text,
-	const QString &lottie);
+	not_null<Ui::VerticalLayout*> container,
+	DividerWithLottieDescriptor &&descriptor);
 
 struct LottieIcon {
 	object_ptr<Ui::RpWidget> widget;
@@ -212,12 +204,6 @@ struct LottieIcon {
 	not_null<QWidget*> parent,
 	Lottie::IconDescriptor &&descriptor,
 	style::margins padding = {});
-
-void FillMenu(
-	not_null<Window::SessionController*> controller,
-	Type type,
-	Fn<void(Type)> showOther,
-	Ui::Menu::MenuCallback addAction);
 
 struct SliderWithLabel {
 	object_ptr<Ui::RpWidget> widget;
@@ -229,6 +215,7 @@ struct SliderWithLabel {
 	const style::MediaSlider &sliderSt,
 	const style::FlatLabel &labelSt,
 	int skip,
-	int minLabelWidth = 0);
+	int minLabelWidth = 0,
+	bool ignoreWheel = false);
 
 } // namespace Settings

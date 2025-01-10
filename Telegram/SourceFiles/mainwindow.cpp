@@ -16,13 +16,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/tooltip.h"
-#include "ui/layers/layer_widget.h"
 #include "ui/emoji_config.h"
 #include "ui/ui_utility.h"
 #include "lang/lang_cloud_manager.h"
 #include "lang/lang_instance.h"
-#include "lang/lang_keys.h"
-#include "core/shortcuts.h"
 #include "core/sandbox.h"
 #include "core/application.h"
 #include "export/export_manager.h"
@@ -39,14 +36,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "api/api_updates.h"
 #include "settings/settings_intro.h"
-#include "platform/platform_notifications_manager.h"
-#include "base/platform/base_platform_info.h"
 #include "base/options.h"
-#include "base/variant.h"
 #include "window/notifications_manager.h"
 #include "window/themes/window_theme.h"
 #include "window/themes/window_theme_warning.h"
-#include "window/window_lock_widgets.h"
 #include "window/window_main_menu.h"
 #include "window/window_controller.h" // App::wnd.
 #include "window/window_session_controller.h"
@@ -56,7 +49,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_window.h"
 
 #include <QtGui/QWindow>
-#include <QtCore/QCoreApplication>
 
 namespace {
 
@@ -86,8 +78,8 @@ base::options::toggle AutoScrollInactiveChat({
 
 } // namespace
 
-const char kOptionAutoScrollInactiveChat[] =
-	"auto-scroll-inactive-chat";
+const char kOptionAutoScrollInactiveChat[]
+	= "auto-scroll-inactive-chat";
 
 MainWindow::MainWindow(not_null<Window::Controller*> controller)
 : Platform::MainWindow(controller) {
@@ -148,7 +140,9 @@ void MainWindow::finishFirstShow() {
 	applyInitialWorkMode();
 	createGlobalMenu();
 
-	windowDeactivateEvents(
+	windowActiveValue(
+	) | rpl::skip(1) | rpl::filter(
+		!rpl::mappers::_1
 	) | rpl::start_with_next([=] {
 		Ui::Tooltip::Hide();
 	}, lifetime());
@@ -200,7 +194,7 @@ void MainWindow::setupPasscodeLock() {
 		setInnerFocus();
 	}
 	if (const auto sessionController = controller().sessionController()) {
-		sessionController->session().attachWebView().cancel();
+		sessionController->session().attachWebView().closeAll();
 	}
 }
 
@@ -276,13 +270,11 @@ void MainWindow::setupMain(
 	auto created = object_ptr<MainWidget>(bodyWidget(), sessionController());
 	clearWidgets();
 	_main = std::move(created);
-	if (const auto peer = singlePeer()) {
-		updateControlsGeometry();
-		_main->controller()->showPeerHistory(
-			peer,
-			Window::SectionShow::Way::ClearStack,
-			singlePeerShowAtMsgId);
-	}
+	updateControlsGeometry();
+	Ui::SendPendingMoveResizeEvents(_main);
+	_main->controller()->showByInitialId(
+		Window::SectionShow::Way::ClearStack,
+		singlePeerShowAtMsgId);
 	if (_passcodeLock) {
 		_main->hide();
 	} else {
@@ -526,6 +518,7 @@ bool MainWindow::markingAsRead() const {
 		&& !_layer
 		&& !isHidden()
 		&& !isMinimized()
+		&& windowHandle()->isExposed()
 		&& (AutoScrollInactiveChat.value()
 			|| (isActive() && !_main->session().updates().isIdle()));
 }
@@ -602,7 +595,7 @@ bool MainWindow::eventFilter(QObject *object, QEvent *e) {
 	case QEvent::ApplicationActivate: {
 		if (object == QCoreApplication::instance()) {
 			InvokeQueued(this, [=] {
-				handleActiveChanged();
+				handleActiveChanged(isActiveWindow());
 			});
 		}
 	} break;

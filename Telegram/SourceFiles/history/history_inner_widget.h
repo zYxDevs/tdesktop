@@ -9,12 +9,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <apiwrap.h>
 #include "base/timer.h"
+#include "data/data_report.h"
 #include "ui/rp_widget.h"
 #include "ui/effects/animations.h"
 #include "ui/dragging_scroll_manager.h"
 #include "ui/widgets/tooltip.h"
 #include "ui/widgets/scroll_area.h"
+#include "history/history_view_swipe_data.h"
 #include "history/view/history_view_top_bar_widget.h"
+
+#include <QtGui/QPainterPath>
 
 struct ClickContext;
 struct ClickHandlerContext;
@@ -27,6 +31,7 @@ namespace HistoryView {
 class ElementDelegate;
 class EmojiInteractions;
 struct TextState;
+struct SelectionModeResult;
 struct StateRequest;
 enum class CursorState : char;
 enum class PointState : char;
@@ -34,6 +39,8 @@ class EmptyPainter;
 class Element;
 class TranslateTracker;
 struct PinnedId;
+struct SelectedQuote;
+class AboutView;
 } // namespace HistoryView
 
 namespace HistoryView::Reactions {
@@ -50,7 +57,6 @@ namespace Ui {
 class ChatTheme;
 class ChatStyle;
 class PopupMenu;
-enum class ReportReason;
 struct ChatPaintContext;
 class PathShiftGradient;
 struct PeerUserpicView;
@@ -133,14 +139,12 @@ public:
 	void clearSelected(bool onlyTextSelection = false);
 	[[nodiscard]] MessageIdsList getSelectedItems() const;
 	[[nodiscard]] bool hasSelectedItems() const;
-	[[nodiscard]] bool inSelectionMode() const;
+	[[nodiscard]] HistoryView::SelectionModeResult inSelectionMode() const;
 	[[nodiscard]] bool elementIntersectsRange(
 		not_null<const Element*> view,
 		int from,
 		int till) const;
 	void elementStartStickerLoop(not_null<const Element*> view);
-	[[nodiscard]] float64 elementHighlightOpacity(
-		not_null<const HistoryItem*> item) const;
 	void elementShowPollResults(
 		not_null<PollData*> poll,
 		FullMsgId context);
@@ -159,16 +163,23 @@ public:
 	void elementSendBotCommand(
 		const QString &command,
 		const FullMsgId &context);
+	void elementSearchInList(
+		const QString &query,
+		const FullMsgId &context);
 	void elementHandleViaClick(not_null<UserData*> bot);
 	bool elementIsChatWide();
 	not_null<Ui::PathShiftGradient*> elementPathShiftGradient();
-	void elementReplyTo(const FullMsgId &to);
+	void elementReplyTo(const FullReplyTo &to);
 	void elementStartInteraction(not_null<const Element*> view);
 	void elementStartPremium(
 		not_null<const Element*> view,
 		Element *replacing);
 	void elementCancelPremium(not_null<const Element*> view);
+	void elementStartEffect(
+		not_null<const Element*> view,
+		Element *replacing);
 
+	void startEffectOnRead(not_null<HistoryItem*> item);
 	void updateBotInfo(bool recount = true);
 
 	bool wasSelectedText() const;
@@ -182,10 +193,8 @@ public:
 	int historyTop() const;
 	int historyDrawTop() const;
 
-	void setChooseReportReason(Ui::ReportReason reason);
+	void setChooseReportReason(Data::ReportInput reportInput);
 	void clearChooseReportReason();
-
-	void setCanHaveFromUserpicsSponsored(bool value);
 
 	// -1 if should not be visible, -2 if bad history()
 	[[nodiscard]] int itemTop(const HistoryItem *item) const;
@@ -196,7 +205,7 @@ public:
 	[[nodiscard]] std::pair<Element*, int> findViewForPinnedTracking(
 		int top) const;
 
-	void notifyIsBotChanged();
+	void refreshAboutView(bool force = false);
 	void notifyMigrateUpdated();
 
 	// Ui::AbstractTooltipShower interface.
@@ -205,6 +214,7 @@ public:
 	bool tooltipWindowActive() const override;
 
 	void onParentGeometryChanged();
+	bool consumeScrollAction(QPoint delta);
 
 	[[nodiscard]] Fn<HistoryView::ElementDelegate*()> elementDelegateFactory(
 		FullMsgId itemId) const;
@@ -237,7 +247,10 @@ private:
 	void onTouchSelect();
 	void onTouchScrollTimer();
 
-	class BotAbout;
+	[[nodiscard]] static int SelectionViewOffset(
+		not_null<const HistoryInner*> inner,
+		not_null<const Element*> view);
+
 	using ChosenReaction = HistoryView::Reactions::ChosenReaction;
 	using VideoUserpic = Dialogs::Ui::VideoUserpic;
 	using SelectedItems = std::map<HistoryItem*, TextSelection, std::less<>>;
@@ -317,6 +330,8 @@ private:
 
 	QPoint mapPointToItem(QPoint p, const Element *view) const;
 	QPoint mapPointToItem(QPoint p, const HistoryItem *item) const;
+	[[nodiscard]] HistoryView::SelectedQuote selectedQuote(
+		not_null<HistoryItem*> item) const;
 
 	void showContextMenu(QContextMenuEvent *e, bool showFromTouch = false);
 	void cancelContextDownload(not_null<DocumentData*> document);
@@ -418,6 +433,7 @@ private:
 	void reactionChosen(const ChosenReaction &reaction);
 
 	void setupSharingDisallowed();
+	void setupSwipeReply();
 	[[nodiscard]] bool hasCopyRestriction(HistoryItem *item = nullptr) const;
 	[[nodiscard]] bool hasCopyMediaRestriction(
 		not_null<HistoryItem*> item) const;
@@ -455,7 +471,7 @@ private:
 	// the first _history message date (just skip it by height).
 	int _historySkipHeight = 0;
 
-	std::unique_ptr<BotAbout> _botAbout;
+	std::unique_ptr<HistoryView::AboutView> _aboutView;
 	std::unique_ptr<HistoryView::EmptyPainter> _emptyPainter;
 	std::unique_ptr<HistoryView::TranslateTracker> _translateTracker;
 
@@ -465,9 +481,10 @@ private:
 
 	style::cursor _cursor = style::cur_default;
 	SelectedItems _selected;
-	std::optional<Ui::ReportReason> _chooseForReportReason;
+	std::optional<Data::ReportInput> _chooseForReportReason;
 
 	const std::unique_ptr<Ui::PathShiftGradient> _pathGradient;
+	QPainterPath _highlightPathCache;
 	bool _isChatWide = false;
 
 	base::flat_set<not_null<const HistoryItem*>> _animatedStickersPlayed;
@@ -490,10 +507,12 @@ private:
 	HistoryItem *_dragStateItem = nullptr;
 	CursorState _mouseCursorState = CursorState();
 	uint16 _mouseTextSymbol = 0;
+	bool _dragStateUserpic = false;
 	bool _pressWasInactive = false;
 	bool _recountedAfterPendingResizedItems = false;
 	bool _useCornerReaction = false;
-	bool _canHaveFromUserpicsSponsored = false;
+	bool _acceptsHorizontalScroll = false;
+	bool _horizontalScrollLocked = false;
 
 	QPoint _trippleClickPoint;
 	base::Timer _trippleClickTimer;
@@ -503,11 +522,15 @@ private:
 	bool _dragSelecting = false;
 	bool _wasSelectedText = false; // was some text selected in current drag action
 
+	mutable bool _lastInSelectionMode = false;
+	mutable Ui::Animations::Simple _inSelectionModeAnimation;
+
 	// scroll by touch support (at least Windows Surface tablets)
 	bool _touchScroll = false;
 	bool _touchSelect = false;
 	bool _touchInProgress = false;
 	QPoint _touchStart, _touchPrevPos, _touchPos;
+	rpl::variable<bool> _touchMaybeSelecting;
 	base::Timer _touchSelectTimer;
 
 	Ui::DraggingScrollManager _selectScroll;
@@ -523,6 +546,8 @@ private:
 	crl::time _touchTime = 0;
 	base::Timer _touchScrollTimer;
 
+	HistoryView::ChatPaintGestureHorizontalData _gestureHorizontal;
+
 	// _menu must be destroyed before _whoReactedMenuLifetime.
 	rpl::lifetime _whoReactedMenuLifetime;
 	base::unique_qptr<Ui::PopupMenu> _menu;
@@ -536,3 +561,5 @@ private:
 	ClickHandlerPtr _scrollDateLink;
 
 };
+
+[[nodiscard]] bool CanSendReply(not_null<const HistoryItem*> item);

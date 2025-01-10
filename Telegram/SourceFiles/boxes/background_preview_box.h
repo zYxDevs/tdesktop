@@ -7,7 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "boxes/abstract_box.h"
+#include "ui/layers/box_content.h"
 #include "base/binary_guard.h"
 #include "history/admin_log/history_admin_log_item.h"
 #include "history/view/history_view_element.h"
@@ -29,6 +29,8 @@ class ChatStyle;
 class MediaSlider;
 template <typename Widget>
 class SlideWrap;
+template <typename Widget>
+class FadeWrap;
 } // namespace Ui
 
 struct BackgroundPreviewArgs {
@@ -66,9 +68,10 @@ private:
 
 	void apply();
 	void applyForPeer();
+	void applyForPeer(bool both);
 	void applyForEveryone();
-	void uploadForPeer();
-	void setExistingForPeer(const Data::WallPaper &paper);
+	void uploadForPeer(bool both);
+	void setExistingForPeer(const Data::WallPaper &paper, bool both);
 	void share();
 	void radialAnimationCallback(crl::time now);
 	QRect radialRect() const;
@@ -91,18 +94,25 @@ private:
 	void applyDarkMode(bool dark);
 	[[nodiscard]] OverridenStyle prepareOverridenStyle(bool dark);
 
+	[[nodiscard]] bool forChannel() const;
+	[[nodiscard]] bool forGroup() const;
+	void checkLevelForChannel();
+
+	void recreate(bool dark);
 	void resetTitle();
 	void rebuildButtons(bool dark);
 	void createDimmingSlider(bool dark);
 
 	const not_null<Window::SessionController*> _controller;
 	PeerData * const _forPeer = nullptr;
+	bool _forPeerLevelCheck = false;
 	FullMsgId _fromMessageId;
 	std::unique_ptr<Ui::ChatStyle> _chatStyle;
 	const not_null<History*> _serviceHistory;
 	AdminLog::OwnedItem _service;
 	AdminLog::OwnedItem _text1;
 	AdminLog::OwnedItem _text2;
+	QString _paperEmojiId;
 	Data::WallPaper _paper;
 	std::shared_ptr<Data::DocumentMedia> _media;
 	QImage _full;
@@ -130,6 +140,8 @@ private:
 	FullMsgId _uploadId;
 	float64 _uploadProgress = 0.;
 	rpl::lifetime _uploadLifetime;
+
+	std::unique_ptr<Ui::FadeWrap<Ui::RpWidget>> _forBothOverlay;
 
 	rpl::variable<QColor> _paletteServiceBg;
 	rpl::lifetime _serviceBgLifetime;

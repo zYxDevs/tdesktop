@@ -20,7 +20,7 @@ HistoryMessageEdition::HistoryMessageEdition(
 
 	auto peerId = message.vfrom_id() ? peerFromMTP(*message.vfrom_id()) : PeerId(0);
 	auto user = session->data().peerLoaded(message.vfrom_id() ? peerFromMTP(*message.vfrom_id()) : PeerId(0));
-	if (GetEnhancedBool("blocked_user_spoiler_mode") && blockExist(int64(peerId.value)) || GetEnhancedBool("blocked_user_spoiler_mode") && user && user->isBlocked()) {
+	if ((GetEnhancedBool("blocked_user_spoiler_mode") && blockExist(peerId.value)) || (GetEnhancedBool("blocked_user_spoiler_mode") && user && user->isBlocked())) {
 		auto blkMsg = QString("[Blocked User Message]\n");
 		auto msg = blkMsg + qs(message.vmessage());
 		textWithEntities = TextWithEntities{
@@ -43,11 +43,13 @@ HistoryMessageEdition::HistoryMessageEdition(
 	replyMarkup = HistoryMessageMarkupData(message.vreply_markup());
 	mtpMedia = message.vmedia();
 	mtpReactions = message.vreactions();
+	mtpFactcheck = message.vfactcheck();
 	views = message.vviews().value_or(-1);
 	forwards = message.vforwards().value_or(-1);
 	if (const auto mtpReplies = message.vreplies()) {
 		replies = HistoryMessageRepliesData(mtpReplies);
 	}
+	invertMedia = message.is_invert_media();
 
 	const auto period = message.vttl_period();
 	ttl = (period && period->v > 0) ? (message.vdate().v + period->v) : 0;

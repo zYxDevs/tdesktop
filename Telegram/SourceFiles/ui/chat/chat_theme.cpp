@@ -489,8 +489,8 @@ ChatPaintContext ChatTheme::preparePaintContext(
 		.bubblesPattern = _bubblesBackgroundPattern.get(),
 		.viewport = viewport,
 		.clip = clip,
-		.paused = paused,
 		.now = now,
+		.paused = paused,
 	};
 }
 
@@ -909,12 +909,17 @@ QImage PrepareImageForTiled(const QImage &prepared) {
 		const QString &path,
 		const QByteArray &content,
 		bool gzipSvg) {
-	return Images::Read({
+	auto result = Images::Read({
 		.path = path,
 		.content = content,
 		.maxSize = QSize(kMaxSize, kMaxSize),
 		.gzipSvg = gzipSvg,
 	}).image;
+	if (result.isNull()) {
+		result = QImage(1, 1, QImage::Format_ARGB32_Premultiplied);
+		result.fill(Qt::black);
+	}
+	return result;
 }
 
 QImage GenerateBackgroundImage(

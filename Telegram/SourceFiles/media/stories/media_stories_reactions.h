@@ -16,6 +16,7 @@ struct ReactionId;
 class Session;
 class Story;
 struct SuggestedReaction;
+struct WeatherArea;
 } // namespace Data
 
 namespace HistoryView::Reactions {
@@ -41,13 +42,14 @@ enum class ReactionsMode {
 	Reaction,
 };
 
-class SuggestedReactionView {
+class StoryAreaView {
 public:
-	virtual ~SuggestedReactionView() = default;
+	virtual ~StoryAreaView() = default;
 
-	virtual void setAreaGeometry(QRect geometry) = 0;
-	virtual void updateCount(int count) = 0;
+	virtual void setAreaGeometry(QRect geometry, float64 radius) = 0;
+	virtual void updateReactionsCount(int count) = 0;
 	virtual void playEffect() = 0;
+	virtual bool contains(QPoint point) = 0;
 };
 
 class Reactions final {
@@ -79,13 +81,19 @@ public:
 
 	[[nodiscard]] auto makeSuggestedReactionWidget(
 		const Data::SuggestedReaction &reaction)
-	-> std::unique_ptr<SuggestedReactionView>;
+	-> std::unique_ptr<StoryAreaView>;
+	[[nodiscard]] auto makeWeatherAreaWidget(
+		const Data::WeatherArea &data,
+		rpl::producer<bool> weatherInCelsius)
+	-> std::unique_ptr<StoryAreaView>;
 
 	void setReplyFieldState(
 		rpl::producer<bool> focused,
 		rpl::producer<bool> hasSendText);
 	void attachToReactionButton(not_null<Ui::RpWidget*> button);
 	void setReactionIconWidget(Ui::RpWidget *widget);
+
+	void animateAndProcess(Chosen &&chosen);
 
 	using AttachStripResult = HistoryView::Reactions::AttachSelectorResult;
 	[[nodiscard]] AttachStripResult attachToMenu(
@@ -94,8 +102,6 @@ public:
 
 private:
 	class Panel;
-
-	void animateAndProcess(Chosen &&chosen);
 
 	void assignLikedId(Data::ReactionId id);
 	[[nodiscard]] Fn<void(Ui::ReactionFlyCenter)> setLikedIdIconInit(

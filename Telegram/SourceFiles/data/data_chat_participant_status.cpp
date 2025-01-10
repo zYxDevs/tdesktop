@@ -9,13 +9,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/unixtime.h"
 #include "boxes/peers/edit_peer_permissions_box.h"
+#include "chat_helpers/compose/compose_show.h"
 #include "data/data_chat.h"
 #include "data/data_channel.h"
 #include "data/data_forum_topic.h"
 #include "data/data_peer_values.h"
 #include "data/data_user.h"
 #include "lang/lang_keys.h"
+#include "main/main_session.h"
 #include "ui/chat/attach/attach_prepare.h"
+#include "ui/text/text_utilities.h"
+#include "ui/toast/toast.h"
+#include "window/window_session_controller.h"
 
 namespace {
 
@@ -111,7 +116,12 @@ bool CanSendAnyOf(
 		ChatRestrictions rights,
 		bool forbidInForums) {
 	if (const auto user = peer->asUser()) {
-		if (user->isInaccessible() || user->isRepliesChat()) {
+		if (user->isInaccessible()
+			|| user->isRepliesChat()
+			|| user->isVerifyCodes()) {
+			return false;
+		} else if (user->meRequiresPremiumToWrite()
+			&& !user->session().premium()) {
 			return false;
 		} else if (rights
 			& ~(ChatRestriction::SendVoiceMessages
@@ -161,12 +171,22 @@ bool CanSendAnyOf(
 	Unexpected("Peer type in CanSendAnyOf.");
 }
 
-std::optional<QString> RestrictionError(
+SendError RestrictionError(
 		not_null<PeerData*> peer,
 		ChatRestriction restriction) {
 	using Flag = ChatRestriction;
 	if (const auto restricted = peer->amRestricted(restriction)) {
 		if (const auto user = peer->asUser()) {
+			if (user->meRequiresPremiumToWrite()
+				&& !user->session().premium()) {
+				return SendError({
+					.text = tr::lng_restricted_send_non_premium(
+						tr::now,
+						lt_user,
+						user->shortName()),
+					.premiumToLift = true,
+				});
+			}
 			const auto result = (restriction == Flag::SendVoiceMessages)
 				? tr::lng_restricted_send_voice_messages(
 					tr::now,
@@ -181,7 +201,7 @@ std::optional<QString> RestrictionError(
 				? u"can't send polls :("_q
 				: (restriction == Flag::PinMessages)
 				? u"can't pin :("_q
-				: std::optional<QString>();
+				: SendError();
 
 			Ensures(result.has_value());
 			return result;
@@ -240,6 +260,16 @@ std::optional<QString> RestrictionError(
 				Unexpected("Restriction in Data::RestrictionErrorKey.");
 			}
 		}
+		if (all
+			&& channel
+			&& channel->boostsUnrestrict()
+			&& !channel->unrestrictedByBoosts()) {
+			return SendError({
+				.text = tr::lng_restricted_boost_group(tr::now),
+				.boostsToLift = (channel->boostsUnrestrict()
+					- channel->boostsApplied()),
+			});
+		}
 		switch (restriction) {
 		case Flag::SendPolls:
 			return all
@@ -289,10 +319,10 @@ std::optional<QString> RestrictionError(
 		}
 		Unexpected("Restriction in Data::RestrictionErrorKey.");
 	}
-	return std::nullopt;
+	return SendError();
 }
 
-std::optional<QString> AnyFileRestrictionError(not_null<PeerData*> peer) {
+SendError AnyFileRestrictionError(not_null<PeerData*> peer) {
 	using Restriction = ChatRestriction;
 	for (const auto right : FilesSendRestrictionsList()) {
 		if (!RestrictionError(peer, right)) {
@@ -302,7 +332,7 @@ std::optional<QString> AnyFileRestrictionError(not_null<PeerData*> peer) {
 	return RestrictionError(peer, Restriction::SendFiles);
 }
 
-std::optional<QString> FileRestrictionError(
+SendError FileRestrictionError(
 		not_null<PeerData*> peer,
 		const Ui::PreparedList &list,
 		std::optional<bool> compress) {
@@ -326,7 +356,7 @@ std::optional<QString> FileRestrictionError(
 	return {};
 }
 
-std::optional<QString> FileRestrictionError(
+SendError FileRestrictionError(
 		not_null<PeerData*> peer,
 		const Ui::PreparedFile &file,
 		std::optional<bool> compress) {
@@ -368,6 +398,32 @@ std::optional<QString> FileRestrictionError(
 		break;
 	}
 	return {};
+}
+
+void ShowSendErrorToast(
+		not_null<Window::SessionNavigation*> navigation,
+		not_null<PeerData*> peer,
+		Data::SendError error) {
+	return ShowSendErrorToast(navigation->uiShow(), peer, error);
+}
+
+void ShowSendErrorToast(
+		std::shared_ptr<ChatHelpers::Show> show,
+		not_null<PeerData*> peer,
+		Data::SendError error) {
+	if (!error.boostsToLift) {
+		show->showToast(*error);
+		return;
+	}
+	const auto boost = [=] {
+		const auto window = show->resolveWindow(
+			ChatHelpers::WindowUsage::PremiumPromo);
+		window->resolveBoostState(peer->asChannel(), error.boostsToLift);
+	};
+	show->showToast({
+		.text = Ui::Text::Link(*error),
+		.filter = [=](const auto &...) { boost(); return false; },
+	});
 }
 
 } // namespace Data

@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Data {
 
 using FileOriginMessage = FullMsgId;
+using FileOriginStory = FullStoryId;
 
 struct FileOriginUserPhoto {
 	FileOriginUserPhoto(UserId userId, PhotoId photoId)
@@ -120,18 +121,12 @@ struct FileOriginPremiumPreviews {
 	}
 };
 
-struct FileOriginStory {
-	FileOriginStory(PeerId peerId, StoryId storyId)
-	: peerId(peerId)
-	, storyId(storyId) {
+struct FileOriginWebPage {
+	QString url;
+
+	inline bool operator<(const FileOriginWebPage &other) const {
+		return url < other.url;
 	}
-
-	PeerId peerId = 0;
-	StoryId storyId = 0;
-
-	friend inline auto operator<=>(
-		FileOriginStory,
-		FileOriginStory) = default;
 };
 
 struct FileOrigin {
@@ -147,6 +142,7 @@ struct FileOrigin {
 		FileOriginTheme,
 		FileOriginRingtones,
 		FileOriginPremiumPreviews,
+		FileOriginWebPage,
 		FileOriginStory>;
 
 	FileOrigin() = default;
@@ -169,6 +165,8 @@ struct FileOrigin {
 	FileOrigin(FileOriginRingtones data) : data(data) {
 	}
 	FileOrigin(FileOriginPremiumPreviews data) : data(data) {
+	}
+	FileOrigin(FileOriginWebPage data) : data(data) {
 	}
 	FileOrigin(FileOriginStory data) : data(data) {
 	}
@@ -221,6 +219,7 @@ UpdatedFileReferences GetFileReferences(const MTPTheme &data);
 UpdatedFileReferences GetFileReferences(
 	const MTPaccount_SavedRingtones &data);
 UpdatedFileReferences GetFileReferences(const MTPhelp_PremiumPromo &data);
+UpdatedFileReferences GetFileReferences(const MTPmessages_WebPage &data);
 UpdatedFileReferences GetFileReferences(const MTPstories_Stories &data);
 
 // Admin Log Event.

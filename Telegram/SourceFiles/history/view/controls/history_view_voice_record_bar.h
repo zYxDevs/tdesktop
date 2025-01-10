@@ -10,6 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_common.h"
 #include "base/timer.h"
 #include "history/view/controls/compose_controls_common.h"
+#include "media/audio/media_audio_capture_common.h"
+#include "ui/controls/round_video_recorder.h"
 #include "ui/effects/animations.h"
 #include "ui/round_rect.h"
 #include "ui/rp_widget.h"
@@ -20,8 +22,14 @@ namespace style {
 struct RecordBar;
 } // namespace style
 
+namespace Media::Capture {
+enum class Error : uchar;
+} // namespace Media::Capture
+
 namespace Ui {
+class AbstractButton;
 class SendButton;
+class RoundVideoRecorder;
 } // namespace Ui
 
 namespace Window {
@@ -53,6 +61,8 @@ class VoiceRecordBar final : public Ui::RpWidget {
 public:
 	using SendActionUpdate = Controls::SendActionUpdate;
 	using VoiceToSend = Controls::VoiceToSend;
+	using FilterCallback = Fn<bool()>;
+	using Error = ::Media::Capture::Error;
 
 	VoiceRecordBar(
 		not_null<Ui::RpWidget*> parent,
@@ -84,10 +94,12 @@ public:
 	[[nodiscard]] rpl::producer<not_null<QEvent*>> lockViewportEvents() const;
 	[[nodiscard]] rpl::producer<> updateSendButtonTypeRequests() const;
 	[[nodiscard]] rpl::producer<> recordingTipRequests() const;
+	[[nodiscard]] rpl::producer<Error> errors() const;
 
 	void requestToSendWithOptions(Api::SendOptions options);
 
-	void setStartRecordingFilter(Fn<bool()> &&callback);
+	void setStartRecordingFilter(FilterCallback &&callback);
+	void setTTLFilter(FilterCallback &&callback);
 
 	[[nodiscard]] bool isRecording() const;
 	[[nodiscard]] bool isRecordingLocked() const;
@@ -95,6 +107,7 @@ public:
 	[[nodiscard]] bool isListenState() const;
 	[[nodiscard]] bool isActive() const;
 	[[nodiscard]] bool isRecordingByAnotherBar() const;
+	[[nodiscard]] bool isTTLButtonShown() const;
 
 private:
 	enum class StopType {
@@ -103,40 +116,50 @@ private:
 		Listen,
 	};
 
+	enum class TTLAnimationType {
+		RightLeft,
+		TopBottom,
+		RightTopStatic,
+	};
+
 	void init();
 	void initLockGeometry();
 	void initLevelGeometry();
 
 	void updateMessageGeometry();
 	void updateLockGeometry();
+	void updateTTLGeometry(TTLAnimationType type, float64 progress);
 
 	void recordUpdated(quint16 level, int samples);
-
-	bool recordingAnimationCallback(crl::time now);
+	void checkTipRequired();
 
 	void stop(bool send);
-	void stopRecording(StopType type);
+	void stopRecording(StopType type, bool ttlBeforeHide = false);
 	void visibilityAnimate(bool show, Fn<void()> &&callback);
 
-	bool showRecordButton() const;
-	void drawDuration(Painter &p);
-	void drawRedCircle(Painter &p);
-	void drawMessage(Painter &p, float64 recordActive);
+	void drawDuration(QPainter &p);
+	void drawRedCircle(QPainter &p);
+	void drawMessage(QPainter &p, float64 recordActive);
 
 	void startRedCircleAnimation();
 	void installListenStateFilter();
 
-	bool isTypeRecord() const;
-	bool hasDuration() const;
+	[[nodiscard]] bool isTypeRecord() const;
+	[[nodiscard]] bool hasDuration() const;
 
 	void finish();
 
 	void activeAnimate(bool active);
-	float64 showAnimationRatio() const;
-	float64 showListenAnimationRatio() const;
-	float64 activeAnimationRatio() const;
+	[[nodiscard]] float64 showAnimationRatio() const;
+	[[nodiscard]] float64 showListenAnimationRatio() const;
+	[[nodiscard]] float64 activeAnimationRatio() const;
 
 	void computeAndSetLockProgress(QPoint globalPos);
+
+	[[nodiscard]] bool peekTTLState() const;
+	[[nodiscard]] bool takeTTLState() const;
+
+	[[nodiscard]] bool createVideoRecorder();
 
 	const style::RecordBar &_st;
 	const not_null<Ui::RpWidget*> _outerContainer;
@@ -145,7 +168,11 @@ private:
 	const std::unique_ptr<RecordLock> _lock;
 	const std::unique_ptr<VoiceRecordButton> _level;
 	const std::unique_ptr<CancelButton> _cancel;
+	std::unique_ptr<Ui::AbstractButton> _ttlButton;
 	std::unique_ptr<ListenWrap> _listen;
+
+	Ui::RoundVideoResult _data;
+	rpl::variable<bool> _paused;
 
 	base::Timer _startTimer;
 
@@ -153,6 +180,7 @@ private:
 	rpl::event_stream<VoiceToSend> _sendVoiceRequests;
 	rpl::event_stream<> _cancelRequests;
 	rpl::event_stream<> _listenChanges;
+	rpl::event_stream<Error> _errors;
 
 	int _centerY = 0;
 	QRect _redCircleRect;
@@ -161,7 +189,8 @@ private:
 
 	Ui::Text::String _message;
 
-	Fn<bool()> _startRecordingFilter;
+	FilterCallback _startRecordingFilter;
+	FilterCallback _hasTTLFilter;
 
 	bool _warningShown = false;
 
@@ -172,8 +201,14 @@ private:
 	float64 _redCircleProgress = 0.;
 
 	rpl::event_stream<> _recordingTipRequests;
-	bool _recordingTipRequired = false;
+	crl::time _recordingTipRequire = 0;
 	bool _lockFromBottom = false;
+
+	std::unique_ptr<Ui::RoundVideoRecorder> _videoRecorder;
+	std::vector<std::unique_ptr<Ui::RoundVideoRecorder>> _videoHiding;
+	rpl::lifetime _videoCapturerLifetime;
+	bool _recordingVideo = false;
+	bool _fullRecord = false;
 
 	const style::font &_cancelFont;
 
